@@ -1,0 +1,211 @@
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (QDialog, QTableWidget, QTableWidgetItem, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
+                               QLineEdit, QMessageBox, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
+
+from .. import netguard
+import json
+from pathlib import Path
+
+from ..config import Settings
+from ..fsutil import atomic_write_json
+
+
+class GlossaryDialog(QDialog):
+    """Edits the glossary as a two-column table and stores it as the JSON the engine reads."""
+
+    def __init__(self, ctx, path: str = "", parent=None):
+        super().__init__(parent)
+        self.ctx = ctx
+        t = ctx.t
+        self.setWindowTitle(t("gl_title")); self.resize(560, 420)
+        lay = QVBoxLayout(self)
+        hint = QLabel(t("gl_hint")); hint.setObjectName("hint"); hint.setWordWrap(True); lay.addWidget(hint)
+        self.table = QTableWidget(0, 2)
+        self.table.setHorizontalHeaderLabels([t("gl_term"), t("gl_repl")])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setColumnWidth(0, 230)
+        lay.addWidget(self.table, 1)
+        row = QHBoxLayout()
+        self.b_add, self.b_del, self.b_save = QPushButton(t("gl_add")), QPushButton(t("gl_del")), QPushButton(t("gl_save"))
+        self.b_save.setObjectName("primary")
+        for b in (self.b_add, self.b_del, self.b_save):
+            row.addWidget(b)
+        row.addStretch(1)
+        lay.addLayout(row)
+        self.b_add.clicked.connect(lambda: self.add_row())
+        self.b_del.clicked.connect(self.del_row)
+        self.b_save.clicked.connect(self.accept)
+        if path and Path(path).is_file():
+            self.load(path)
+        else:
+            self.add_row()
+
+    def add_row(self, term="", repl=""):
+        r = self.table.rowCount()
+        self.table.insertRow(r)
+        self.table.setItem(r, 0, QTableWidgetItem(term))
+        self.table.setItem(r, 1, QTableWidgetItem(repl))
+
+    def del_row(self):
+        r = self.table.currentRow()
+        if r >= 0:
+            self.table.removeRow(r)
+
+    def load(self, path):
+        d = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+        for k in d.get("keep", []):
+            self.add_row(k, "")
+        for k, v in d.get("map", {}).items():
+            self.add_row(k, v)
+        if not self.table.rowCount():
+            self.add_row()
+
+    def to_json(self) -> dict:
+        keep, mp = [], {}
+        for r in range(self.table.rowCount()):
+            term = (self.table.item(r, 0).text() if self.table.item(r, 0) else "").strip()
+            repl = (self.table.item(r, 1).text() if self.table.item(r, 1) else "").strip()
+            if term:
+                if repl:
+                    mp[term] = repl
+                else:
+                    keep.append(term)
+        return {"keep": keep, "map": mp}
+
+    def save(self, path) -> Path:
+        atomic_write_json(path, self.to_json())
+        return Path(path)
+
+
+class SettingsPage(QWidget):
+    applied = Signal(bool)           # True if UI must be rebuilt (language/theme changed)
+
+    def __init__(self, ctx, parent=None):
+        super().__init__(parent)
+        self.ctx = ctx
+        t = ctx.t
+        s = ctx.settings
+        outer = QVBoxLayout(self)
+        inner = QWidget()
+        lay = QVBoxLayout(inner)
+
+        g = QGroupBox(t("grp_general")); f = QFormLayout(g)
+        self.cb_offline = QCheckBox(t("set_offline")); self.cb_offline.setChecked(s.offline_mode)
+        self.cb_ui = QComboBox(); self.cb_ui.addItem("العربية", "ar"); self.cb_ui.addItem("English", "en")
+        self.cb_ui.setCurrentIndex(self.cb_ui.findData(s.ui_language))
+        self.cb_theme = QComboBox(); self.cb_theme.addItem(t("theme_light"), "light"); self.cb_theme.addItem(t("theme_dark"), "dark")
+        self.cb_theme.setCurrentIndex(self.cb_theme.findData(s.theme))
+        f.addRow(self.cb_offline); f.addRow(t("set_ui_lang"), self.cb_ui); f.addRow(t("set_theme"), self.cb_theme)
+        lay.addWidget(g)
+
+        g = QGroupBox(t("grp_models")); f = QFormLayout(g)
+        self.cb_asr, self.cb_mt = QComboBox(), QComboBox()
+        self.fill_models()
+        f.addRow(t("set_asr"), self.cb_asr); f.addRow(t("set_mt"), self.cb_mt)
+        lay.addWidget(g)
+
+        g = QGroupBox(t("grp_output")); f = QFormLayout(g)
+        self.ed_out = QLineEdit(s.output_dir); self.ed_out.setPlaceholderText(t("set_outdir_same"))
+        b = QPushButton(t("set_choose")); b.clicked.connect(self.pick_out)
+        h = QHBoxLayout(); h.addWidget(self.ed_out, 1); h.addWidget(b)
+        self.cb_txt = QCheckBox(t("set_txt")); self.cb_txt.setChecked(s.write_txt)
+        self.cb_src = QCheckBox(t("set_srcsrt")); self.cb_src.setChecked(s.write_source_srt)
+        self.ed_gl = QLineEdit(s.glossary_path)
+        b2 = QPushButton(t("set_choose")); b2.clicked.connect(self.pick_gl)
+        b3 = QPushButton(t("gl_edit")); b3.clicked.connect(self.edit_glossary)
+        h2 = QHBoxLayout(); h2.addWidget(self.ed_gl, 1); h2.addWidget(b2); h2.addWidget(b3)
+        self.cb_ctx = QCheckBox(t("set_context")); self.cb_ctx.setChecked(s.context_merge)
+        f.addRow(t("set_outdir"), h); f.addRow(self.cb_txt); f.addRow(self.cb_src); f.addRow(t("set_glossary"), h2); f.addRow(self.cb_ctx)
+        lay.addWidget(g)
+
+        g = QGroupBox(t("grp_sub")); f = QFormLayout(g)
+        self.sp_chars = QSpinBox(); self.sp_chars.setRange(15, 100); self.sp_chars.setValue(s.max_chars_per_line)
+        self.sp_lines = QSpinBox(); self.sp_lines.setRange(1, 4); self.sp_lines.setValue(s.max_lines)
+        self.sp_min = QDoubleSpinBox(); self.sp_min.setRange(0.2, 5); self.sp_min.setSingleStep(0.1); self.sp_min.setValue(s.min_cue_seconds)
+        self.cb_bom = QCheckBox(t("set_bom")); self.cb_bom.setChecked(s.utf8_bom)
+        self.cb_rtl = QCheckBox(t("set_rtl")); self.cb_rtl.setChecked(s.rtl_marks)
+        f.addRow(t("set_chars"), self.sp_chars); f.addRow(t("set_lines"), self.sp_lines); f.addRow(t("set_min_dur"), self.sp_min)
+        f.addRow(self.cb_bom); f.addRow(self.cb_rtl)
+        lay.addWidget(g)
+
+        g = QGroupBox(t("grp_perf")); f = QFormLayout(g)
+        self.sp_chunk = QSpinBox(); self.sp_chunk.setRange(30, 1800); self.sp_chunk.setSingleStep(30); self.sp_chunk.setValue(s.chunk_seconds)
+        self.cb_dev = QComboBox()
+        for d in ("auto", "cpu", "cuda"):
+            self.cb_dev.addItem(d, d)
+        self.cb_dev.setCurrentIndex(self.cb_dev.findData(s.device))
+        self.cb_keep = QCheckBox(t("set_keep_tmp")); self.cb_keep.setChecked(s.keep_temp)
+        f.addRow(t("set_chunk"), self.sp_chunk); f.addRow(t("set_device"), self.cb_dev); f.addRow(self.cb_keep)
+        lay.addWidget(g)
+
+        row = QHBoxLayout()
+        self.b_save = QPushButton(t("set_save")); self.b_save.setObjectName("primary")
+        self.b_reset = QPushButton(t("set_reset"))
+        row.addWidget(self.b_save); row.addWidget(self.b_reset); row.addStretch(1)
+        lay.addLayout(row)
+        self.msg = QLabel(""); self.msg.setObjectName("hint")
+        lay.addWidget(self.msg); lay.addStretch(1)
+        sc = QScrollArea(); sc.setWidgetResizable(True); sc.setWidget(inner)
+        outer.addWidget(sc)
+        self.b_save.clicked.connect(self.save)
+        self.b_reset.clicked.connect(self.reset)
+
+    def fill_models(self):
+        s, t = self.ctx.settings, self.ctx.t
+        self.cb_asr.clear(); self.cb_mt.clear()
+        self.cb_asr.addItem("—", "")
+        for m in self.ctx.models.list("asr"):
+            self.cb_asr.addItem(m["id"], m["id"])
+        self.cb_mt.addItem(t("set_all_mt"), "")
+        for m in self.ctx.models.list("mt"):
+            self.cb_mt.addItem(m["id"], m["id"])
+        self.cb_asr.setCurrentIndex(max(0, self.cb_asr.findData(s.asr_model_id)))
+        self.cb_mt.setCurrentIndex(max(0, self.cb_mt.findData(s.mt_model_id)))
+
+    def pick_out(self):
+        d = QFileDialog.getExistingDirectory(self, self.ctx.t("set_outdir"))
+        if d:
+            self.ed_out.setText(d)
+
+    def pick_gl(self):
+        f, _ = QFileDialog.getOpenFileName(self, self.ctx.t("set_glossary"), "", "JSON (*.json)")
+        if f:
+            self.ed_gl.setText(f)
+
+    def edit_glossary(self):
+        dlg = GlossaryDialog(self.ctx, self.ed_gl.text().strip(), self)
+        if dlg.exec() == QDialog.Accepted:
+            target = self.ed_gl.text().strip() or str(self.ctx.paths.settings / "glossary.json")
+            dlg.save(target)
+            self.ed_gl.setText(target)
+
+    def save(self, confirm=True):
+        s, paths = self.ctx.settings, self.ctx.paths
+        if s.offline_mode and not self.cb_offline.isChecked() and confirm:
+            if QMessageBox.question(self, "", self.ctx.t("offline_warn_confirm")) != QMessageBox.Yes:
+                self.cb_offline.setChecked(True)
+                return
+        rebuild = (s.ui_language != self.cb_ui.currentData()) or (s.theme != self.cb_theme.currentData())
+        s.offline_mode = self.cb_offline.isChecked()
+        s.ui_language, s.theme = self.cb_ui.currentData(), self.cb_theme.currentData()
+        s.asr_model_id, s.mt_model_id = self.cb_asr.currentData() or "", self.cb_mt.currentData() or ""
+        s.output_dir, s.write_txt, s.write_source_srt = self.ed_out.text().strip(), self.cb_txt.isChecked(), self.cb_src.isChecked()
+        s.glossary_path, s.context_merge = self.ed_gl.text().strip(), self.cb_ctx.isChecked()
+        s.max_chars_per_line, s.max_lines, s.min_cue_seconds = self.sp_chars.value(), self.sp_lines.value(), self.sp_min.value()
+        s.utf8_bom, s.rtl_marks = self.cb_bom.isChecked(), self.cb_rtl.isChecked()
+        s.chunk_seconds, s.device, s.keep_temp = self.sp_chunk.value(), self.cb_dev.currentData(), self.cb_keep.isChecked()
+        s.save(paths)
+        if s.offline_mode:
+            netguard.enable_offline(paths.logs / "network.log")
+        else:
+            netguard.disable_offline()
+        self.msg.setText(self.ctx.t("set_saved"))
+        self.applied.emit(rebuild)
+
+    def reset(self):
+        Settings.reset(self.ctx.paths)
+        fresh = Settings()
+        for k, v in fresh.__dict__.items():
+            setattr(self.ctx.settings, k, v)
+        netguard.enable_offline(self.ctx.paths.logs / "network.log")
+        self.applied.emit(True)

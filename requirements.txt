@@ -1,0 +1,8 @@
+# Runtime + build dependencies (no torch, no stanza/spacy, no argostranslate needed)
+faster-whisper==1.2.1
+ctranslate2>=4.5
+sentencepiece>=0.2
+PySide6-Essentials>=6.7
+pyinstaller>=6.6
+pytest>=8
+# Not pip: ffmpeg.exe + ffprobe.exe go in engines/ (the CI workflow downloads an LGPL build automatically).
