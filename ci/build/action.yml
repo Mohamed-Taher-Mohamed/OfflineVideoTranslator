@@ -50,6 +50,8 @@ runs:
         & "dist\OfflineVideoTranslator\ovt-cli.exe" diag | Tee-Object smoke.txt
         $bad = Select-String -Path smoke.txt -Pattern "^\[FAIL\]" | Where-Object { $_.Line -notmatch "models installed" }
         if ($bad) { $bad; exit 1 }
+        # ovt-cli returns 4 because "models installed" fails in CI (expected); without this the step would inherit that code
+        exit 0
 
     - name: Smoke test - the GUI starts and closes by itself
       shell: pwsh
