@@ -10,12 +10,21 @@ import datetime
 import ipaddress
 import os
 import socket
+import sys
 import threading
 
 from .errors import OfflineViolation
 
 _lock = threading.Lock()
-_state = {"enabled": False, "log": None, "orig": None, "attempts": []}
+_state = {"enabled": False, "log": None, "orig": None, "attempts": [], "env_orig": {}}
+_HUB_ENV = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE")
+
+
+def _hub_constant(value: bool):
+    """huggingface_hub reads HF_HUB_OFFLINE once, at import. If it is already imported, flip its constant too."""
+    mod = sys.modules.get("huggingface_hub.constants")
+    if mod is not None and hasattr(mod, "HF_HUB_OFFLINE"):
+        mod.HF_HUB_OFFLINE = value
 
 
 def _is_local(host) -> bool:
@@ -86,8 +95,10 @@ def enable_offline(log_path=None) -> None:
     socket.socket.connect_ex = guard_connect_ex
     socket.getaddrinfo = guard_gai
     socket.create_connection = guard_cc
-    for k in ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE", "HF_DATASETS_OFFLINE"):
+    _state["env_orig"] = {k: os.environ.get(k) for k in _HUB_ENV}
+    for k in _HUB_ENV:
         os.environ[k] = "1"
+    _hub_constant(True)
     _state["enabled"] = True
 
 
@@ -100,6 +111,12 @@ def disable_offline() -> None:
     socket.socket.connect_ex = o["connect_ex"]
     socket.getaddrinfo = o["getaddrinfo"]
     socket.create_connection = o["create_connection"]
+    for k, v in _state["env_orig"].items():           # give Hugging Face its original (online) behaviour back
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+    _hub_constant(False)
     _state["enabled"] = False
 
 

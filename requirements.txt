@@ -1,6 +1,7 @@
 # Runtime + build dependencies (no torch, no stanza/spacy, no argostranslate needed)
 faster-whisper==1.2.1
 ctranslate2>=4.5
+av>=15,<17              # av 19 removed an argument faster-whisper 1.2.1 passes (TypeError: metadata_errors)
 sentencepiece>=0.2
 PySide6-Essentials>=6.7
 pyinstaller>=6.6

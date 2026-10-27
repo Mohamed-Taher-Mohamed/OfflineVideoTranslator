@@ -190,7 +190,8 @@ class ModelManager:
         info = ASR_CATALOG[key]
         tmp = self.paths.temp / ("dl-" + key)
         with netguard.temporarily_online("download " + info["repo"]):
-            snapshot_download(info["repo"], local_dir=str(tmp))
+            snapshot_download(info["repo"], local_dir=str(tmp), allow_patterns=[
+                "config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.*"])
         m = self.import_model("asr", tmp, key, name=key, license=info["license"],
                               source="https://huggingface.co/" + info["repo"])
         shutil.rmtree(tmp, ignore_errors=True)

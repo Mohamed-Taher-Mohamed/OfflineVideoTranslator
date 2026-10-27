@@ -1,0 +1,128 @@
+روابط تحميل النماذج — Offline Video Translator
+============================================================
+
+كيف تستخدمها: حمّل الملفات بالمتصفح، ثم من البرنامج: «إدارة النماذج» ← «استيراد …» (التفاصيل في آخر الملف).
+
+الجزء 1 — نماذج التعرف على الكلام (Whisper بصيغة faster-whisper)
+------------------------------------------------------------
+كل نموذج = مجلد فيه عدة ملفات. ضعها كلها في مجلد واحد بأي اسم تريده، ثم استورد المجلد.
+الملفات المطلوبة (نفس الأسماء في صفحة Files بالموقع): config.json ، model.bin ، tokenizer.json ، preprocessor_config.json (إن وُجد) ، vocabulary.json أو vocabulary.txt (أيهما موجود).
+لا تحتاج README.md ولا .gitattributes.
+الأحجام تقريبية — اعتمد على الحجم الظاهر في الصفحة. السرعة على جهازك لم تُقَس بعد؛ كلما كبر النموذج زادت الدقة والبطء.
+
+● whisper-tiny  (~75 MB) — أسرع شيء، دقة ضعيفة
+   صفحة الملفات: https://huggingface.co/Systran/faster-whisper-tiny/tree/main
+   model.bin                  https://huggingface.co/Systran/faster-whisper-tiny/resolve/main/model.bin
+   config.json                https://huggingface.co/Systran/faster-whisper-tiny/resolve/main/config.json
+   tokenizer.json             https://huggingface.co/Systran/faster-whisper-tiny/resolve/main/tokenizer.json
+   preprocessor_config.json   https://huggingface.co/Systran/faster-whisper-tiny/resolve/main/preprocessor_config.json
+   vocabulary.json            https://huggingface.co/Systran/faster-whisper-tiny/resolve/main/vocabulary.json
+   vocabulary.txt             https://huggingface.co/Systran/faster-whisper-tiny/resolve/main/vocabulary.txt
+
+● whisper-base  (~145 MB) — سريع، دقة متواضعة
+   صفحة الملفات: https://huggingface.co/Systran/faster-whisper-base/tree/main
+   model.bin                  https://huggingface.co/Systran/faster-whisper-base/resolve/main/model.bin
+   config.json                https://huggingface.co/Systran/faster-whisper-base/resolve/main/config.json
+   tokenizer.json             https://huggingface.co/Systran/faster-whisper-base/resolve/main/tokenizer.json
+   preprocessor_config.json   https://huggingface.co/Systran/faster-whisper-base/resolve/main/preprocessor_config.json
+   vocabulary.json            https://huggingface.co/Systran/faster-whisper-base/resolve/main/vocabulary.json
+   vocabulary.txt             https://huggingface.co/Systran/faster-whisper-base/resolve/main/vocabulary.txt
+
+● whisper-small  (~480 MB) — توازن جيد — ابدأ به على الأجهزة العادية
+   صفحة الملفات: https://huggingface.co/Systran/faster-whisper-small/tree/main
+   model.bin                  https://huggingface.co/Systran/faster-whisper-small/resolve/main/model.bin
+   config.json                https://huggingface.co/Systran/faster-whisper-small/resolve/main/config.json
+   tokenizer.json             https://huggingface.co/Systran/faster-whisper-small/resolve/main/tokenizer.json
+   preprocessor_config.json   https://huggingface.co/Systran/faster-whisper-small/resolve/main/preprocessor_config.json
+   vocabulary.json            https://huggingface.co/Systran/faster-whisper-small/resolve/main/vocabulary.json
+   vocabulary.txt             https://huggingface.co/Systran/faster-whisper-small/resolve/main/vocabulary.txt
+
+● whisper-medium  (~1.5 GB) — دقة أعلى، أبطأ بوضوح
+   صفحة الملفات: https://huggingface.co/Systran/faster-whisper-medium/tree/main
+   model.bin                  https://huggingface.co/Systran/faster-whisper-medium/resolve/main/model.bin
+   config.json                https://huggingface.co/Systran/faster-whisper-medium/resolve/main/config.json
+   tokenizer.json             https://huggingface.co/Systran/faster-whisper-medium/resolve/main/tokenizer.json
+   preprocessor_config.json   https://huggingface.co/Systran/faster-whisper-medium/resolve/main/preprocessor_config.json
+   vocabulary.json            https://huggingface.co/Systran/faster-whisper-medium/resolve/main/vocabulary.json
+   vocabulary.txt             https://huggingface.co/Systran/faster-whisper-medium/resolve/main/vocabulary.txt
+
+● whisper-large-v3  (~3.1 GB) — أدق، يحتاج ذاكرة كبيرة وبطيء على المعالج
+   صفحة الملفات: https://huggingface.co/Systran/faster-whisper-large-v3/tree/main
+   model.bin                  https://huggingface.co/Systran/faster-whisper-large-v3/resolve/main/model.bin
+   config.json                https://huggingface.co/Systran/faster-whisper-large-v3/resolve/main/config.json
+   tokenizer.json             https://huggingface.co/Systran/faster-whisper-large-v3/resolve/main/tokenizer.json
+   preprocessor_config.json   https://huggingface.co/Systran/faster-whisper-large-v3/resolve/main/preprocessor_config.json
+   vocabulary.json            https://huggingface.co/Systran/faster-whisper-large-v3/resolve/main/vocabulary.json
+   vocabulary.txt             https://huggingface.co/Systran/faster-whisper-large-v3/resolve/main/vocabulary.txt
+
+ملاحظة: بعض الملفات قد لا يوجد في نموذج معين (مثلًا vocabulary.json أو vocabulary.txt واحد فقط منهما). الرابط غير الموجود يعطي «404» — تجاهله.
+
+الجزء 2 — نماذج الترجمة (Argos .argosmodel) — الروابط من الفهرس الرسمي
+------------------------------------------------------------
+للترجمة من الإنجليزية إلى العربية: ملف واحد فقط (الأول).
+للترجمة من لغة أخرى إلى العربية: تحتاج ملفين — ملف «اللغة ← الإنجليزية» + ملف «الإنجليزية ← العربية».
+(الترجمة عبر الإنجليزية جودتها أقل من المباشرة.)
+
+● الإنجليزية ← العربية  [مطلوب دائمًا]
+   https://argos-net.com/v1/translate-en_ar-1_0.argosmodel
+
+● اللغة ← الإنجليزية (حمّل الذي تحتاجه فقط):
+   الأذربيجانية           (az)  https://argos-net.com/v1/translate-az_en-1_5.argosmodel
+   الأردية                (ur)  https://argos-net.com/v1/translate-ur_en-1_9.argosmodel
+   الألبانية              (sq)  https://argos-net.com/v1/translate-sq_en-1_9.argosmodel
+   الألمانية              (de)  https://argos-net.com/v1/translate-de_en-1_3.argosmodel
+   الأوكرانية             (uk)  https://argos-net.com/v1/translate-uk_en-1_9.argosmodel
+   الأيرلندية             (ga)  https://argos-net.com/v1/translate-ga_en-1_1.argosmodel
+   الإسبانية              (es)  https://argos-net.com/v1/translate-es_en-1_9.argosmodel
+   الإسبرانتو             (eo)  https://argos-net.com/v1/translate-eo_en-1_5.argosmodel
+   الإستونية              (et)  https://argos-net.com/v1/translate-et_en-1_9.argosmodel
+   الإندونيسية            (id)  https://argos-net.com/v1/translate-id_en-1_9.argosmodel
+   الإيطالية              (it)  https://argos-net.com/v1/translate-it_en-1_0.argosmodel
+   الباسكية               (eu)  https://argos-net.com/v1/translate-eu_en-1_9.argosmodel
+   البرتغالية             (pt)  https://argos-net.com/v1/translate-pt_en-1_9.argosmodel
+   البرتغالية (البرازيل)  (pb)  https://argos-net.com/v1/translate-pb_en-1_9.argosmodel
+   البلغارية              (bg)  https://argos-net.com/v1/translate-bg_en-1_9.argosmodel
+   البنغالية              (bn)  https://argos-net.com/v1/translate-bn_en-1_9.argosmodel
+   البولندية              (pl)  https://argos-net.com/v1/translate-pl_en-1_9.argosmodel
+   التاغالوغية            (tl)  https://argos-net.com/v1/translate-tl_en-1_9.argosmodel
+   التايلاندية            (th)  https://argos-net.com/v1/translate-th_en-1_9.argosmodel
+   التركية                (tr)  https://argos-net.com/v1/translate-tr_en-1_5.argosmodel
+   التشيكية               (cs)  https://argos-net.com/v1/translate-cs_en-1_9_6.argosmodel
+   الجاليكية              (gl)  https://argos-net.com/v1/translate-gl_en-1_9.argosmodel
+   الدنماركية             (da)  https://argos-net.com/v1/translate-da_en-1_9.argosmodel
+   الروسية                (ru)  https://argos-net.com/v1/translate-ru_en-1_9.argosmodel
+   الرومانية              (ro)  https://argos-net.com/v1/translate-ro_en-1_9.argosmodel
+   السلوفاكية             (sk)  https://argos-net.com/v1/translate-sk_en-1_9.argosmodel
+   السلوفينية             (sl)  https://argos-net.com/v1/translate-sl_en-1_9.argosmodel
+   السواحيلية             (sw)  https://argos-net.com/v1/translate-sw_en-1_11.argosmodel
+   السويدية               (sv)  https://argos-net.com/v1/translate-sv_en-1_5.argosmodel
+   الصينية (التقليدية)    (zt)  https://argos-net.com/v1/translate-zt_en-1_9.argosmodel
+   الصينية (المبسطة)      (zh)  https://argos-net.com/v1/translate-zh_en-1_9.argosmodel
+   العبرية                (he)  https://argos-net.com/v1/translate-he_en-1_5.argosmodel
+   العربية                (ar)  https://argos-net.com/v1/translate-ar_en-1_0.argosmodel
+   الفارسية               (fa)  https://argos-net.com/v1/translate-fa_en-1_5.argosmodel
+   الفرنسية               (fr)  https://argos-net.com/v1/translate-fr_en-1_9.argosmodel
+   الفنلندية              (fi)  https://argos-net.com/v1/translate-fi_en-1_9.argosmodel
+   الفيتنامية             (vi)  https://argos-net.com/v1/translate-vi_en-1_9.argosmodel
+   القيرغيزية             (ky)  https://argos-net.com/v1/translate-ky_en-1_4.argosmodel
+   الكتالانية             (ca)  https://argos-net.com/v1/translate-ca_en-1_7.argosmodel
+   الكورية                (ko)  https://argos-net.com/v1/translate-ko_en-1_1.argosmodel
+   اللاتفية               (lv)  https://argos-net.com/v1/translate-lv_en-1_9.argosmodel
+   الليتوانية             (lt)  https://argos-net.com/v1/translate-lt_en-1_9.argosmodel
+   الماليزية              (ms)  https://argos-net.com/v1/translate-ms_en-1_9.argosmodel
+   المجرية                (hu)  https://argos-net.com/v1/translate-hu_en-1_9.argosmodel
+   النرويجية              (nb)  https://argos-net.com/v1/translate-nb_en-1_9.argosmodel
+   الهندية                (hi)  https://argos-net.com/v1/translate-hi_en-1_1.argosmodel
+   الهولندية              (nl)  https://argos-net.com/v1/translate-nl_en-1_8.argosmodel
+   اليابانية              (ja)  https://argos-net.com/v1/translate-ja_en-1_1.argosmodel
+   اليونانية              (el)  https://argos-net.com/v1/translate-el_en-1_9.argosmodel
+
+● العربية ← الإنجليزية (اختياري، لو احتجت العكس)
+   https://argos-net.com/v1/translate-ar_en-1_0.argosmodel
+
+الجزء 3 — بعد التحميل: كيف تستورد
+------------------------------------------------------------
+1) نموذج الكلام: ضع ملفاته في مجلد واحد (مثلًا D:\models\whisper-small). في البرنامج: إدارة النماذج ← «استيراد نموذج كلام (مجلد)» ← اختر المجلد ← اكتب معرّفًا مثل whisper-small ← الترخيص MIT.
+2) نموذج الترجمة: إدارة النماذج ← «استيراد حزمة ترجمة (.argosmodel)» ← اختر الملف ← اكتب معرّفًا مثل argos-en-ar.
+3) الاستيراد ينسخ الملفات داخل مجلد البرنامج ويحسب لها بصمة للتحقق؛ بعدها يمكنك حذف الملفات الأصلية أو الاحتفاظ بها كنسخة احتياطية.
+4) اختر النموذج ثم «تعيين كافتراضي».

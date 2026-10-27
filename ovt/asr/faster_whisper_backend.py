@@ -2,6 +2,7 @@
 import math
 from typing import List, Optional, Tuple
 
+from .audio_io import read_wav_float32
 from .base import ASRBackend, Segment
 
 
@@ -23,8 +24,9 @@ class FasterWhisperBackend(ASRBackend):
                 "faster-whisper (CTranslate2) model. Engine said: %s" % (model_dir, str(e)[:300])) from e
 
     def transcribe(self, wav_path, language: Optional[str] = None) -> Tuple[str, float, List[Segment]]:
+        audio = read_wav_float32(wav_path)          # ndarray in -> faster-whisper skips its PyAV decoder
         segs, info = self._model.transcribe(
-            str(wav_path), language=language or None, vad_filter=True,
+            audio, language=language or None, vad_filter=True,
             condition_on_previous_text=False,       # reduces runaway repetition
             beam_size=5, word_timestamps=False)
         out = []
