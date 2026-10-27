@@ -16,9 +16,9 @@ ovt/                 engine (no UI code inside)
   gui/               PySide6 GUI (queue, editor, models, settings, logs, privacy)
   diagnostics.py     system self-check
   translate/ct2_backend.py   light MT engine: CTranslate2+SentencePiece (Argos packages + NLLB folders)
-tests/               95 tests (+1 opt-in 3-hour-file test)
+tests/               97 tests (+1 opt-in 3-hour-file test)
 packaging/           PyInstaller spec, Windows build script, portable README
-.github/workflows/   build-windows.yml (builds the portable zip on GitHub, nothing to install locally)
+.github/workflows/   build-windows.yml = 9-line stub (see ci/STUB_build-windows.yml); ci/build/action.yml = all build steps
 engines/ models/ settings/ output/ logs/ temp/   portable data folders (everything lives next to the program)
 ```
 

@@ -14,7 +14,10 @@ from ovt.translate.base import Support, Translator  # noqa: E402
 
 
 def sh(*a):
-    subprocess.run(list(a), check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    r = subprocess.run(list(a), stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if r.returncode != 0:                      # show ffmpeg's own message, not just an exit code
+        raise RuntimeError("command failed (%s): %s\n%s" % (r.returncode, " ".join(map(str, a))[:200],
+                                                           r.stderr.decode("utf-8", "replace")[-600:]))
 
 
 @pytest.fixture(scope="session")
@@ -28,15 +31,15 @@ def media(tmp_path_factory):
     ar.parent.mkdir()
     sh("ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=160x120:r=5:d=12",
        "-f", "lavfi", "-i", "sine=f=440:d=12", "-f", "lavfi", "-i", "sine=f=880:d=12", "-i", str(srt),
-       "-map", "0", "-map", "1", "-map", "2", "-map", "3", "-c:v", "libx264", "-c:a", "aac", "-c:s", "srt",
+       "-map", "0", "-map", "1", "-map", "2", "-map", "3", "-c:v", "mpeg4", "-c:a", "aac", "-c:s", "srt",
        "-metadata:s:a:0", "language=eng", "-metadata:s:a:1", "language=fra", "-metadata:s:s:0", "language=eng", str(ar))
     out["multi"] = ar
     sil = d / "silent.mp4"
     sh("ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=160x120:r=5:d=6", "-f", "lavfi",
-       "-i", "anullsrc=r=16000:cl=mono", "-t", "6", "-c:v", "libx264", "-c:a", "aac", str(sil))
+       "-i", "anullsrc=r=16000:cl=mono", "-t", "6", "-c:v", "mpeg4", "-c:a", "aac", str(sil))
     out["silent"] = sil
     noaud = d / "noaudio.mp4"
-    sh("ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=160x120:r=5:d=3", "-c:v", "libx264", str(noaud))
+    sh("ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=160x120:r=5:d=3", "-c:v", "mpeg4", str(noaud))
     out["noaudio"] = noaud
     bad = d / "corrupt.mp4"
     bad.write_bytes(b"\x00\x01notavideo" * 500)

@@ -119,3 +119,22 @@ def test_argos_route_and_download_import(server, tmp_path):
     assert downloader.download_argos(paths, mm, "fr", "ar", index=index) == []   # already installed -> nothing to do
     with pytest.raises(OVTError):
         downloader.download_argos(paths, mm, "xx", "ar", index=index)
+
+
+def test_connection_reset_mid_transfer_is_a_clear_resumable_error(tmp_path):
+    """Windows reports a dropped connection as ConnectionResetError, not a short read."""
+    import socket
+    srv = socket.socket(); srv.bind(("127.0.0.1", 0)); srv.listen(1)
+    port = srv.getsockname()[1]
+
+    def serve():
+        c, _ = srv.accept(); c.recv(4096)
+        c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 1000000\r\n\r\n" + b"x" * 1000)
+        c.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, b"\x01\x00\x00\x00\x00\x00\x00\x00")   # RST on close
+        c.close()
+    threading.Thread(target=serve, daemon=True).start()
+    with pytest.raises(OVTError) as e:
+        downloader.download_file("http://127.0.0.1:%d/x" % port, tmp_path / "f.bin")
+    assert "resume" in str(e.value).lower() or "incomplete" in str(e.value).lower()
+    assert (tmp_path / "f.bin.part").exists()
+    srv.close()

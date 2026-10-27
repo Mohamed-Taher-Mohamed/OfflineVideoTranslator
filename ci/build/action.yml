@@ -1,0 +1,69 @@
+name: Build Windows Portable (all build logic lives here, in a normal folder)
+description: Downloads ffmpeg, runs the tests, builds the EXE with PyInstaller, assembles and uploads the portable zip.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: pip
+
+    - name: Download ffmpeg (LGPL build; no x264/libass in it - the program does not need them)
+      shell: pwsh
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip" -OutFile ffmpeg.zip
+        Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_tmp
+        New-Item -ItemType Directory -Force engines | Out-Null
+        Get-ChildItem -Recurse ffmpeg_tmp -Include ffmpeg.exe,ffprobe.exe | Copy-Item -Destination engines
+        Get-ChildItem -Recurse ffmpeg_tmp -Include LICENSE* | Select-Object -First 1 | Copy-Item -Destination engines\FFMPEG-LICENSE.txt
+        "$PWD\engines" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+        .\engines\ffmpeg.exe -version | Select-Object -First 1
+
+    - name: Install dependencies
+      shell: pwsh
+      run: python -m pip install -r requirements.txt
+
+    - name: Run tests
+      shell: pwsh
+      env:
+        QT_QPA_PLATFORM: offscreen
+      run: python -m pytest -q --tb=short -rfE
+
+    - name: Build with PyInstaller
+      shell: pwsh
+      run: python -m PyInstaller --noconfirm --clean packaging/ovt.spec
+
+    - name: Assemble portable folder
+      shell: pwsh
+      run: |
+        $root = "dist\OfflineVideoTranslator"
+        foreach ($d in "engines","models","settings","output","logs","temp") { New-Item -ItemType Directory -Force "$root\$d" | Out-Null }
+        Copy-Item engines\* "$root\engines" -Force
+        Copy-Item packaging\README_PORTABLE_AR.txt "$root\README.txt"
+        Copy-Item docs -Recurse "$root\docs"
+        "" | Out-File "$root\models\ضع النماذج هنا.txt"
+
+    - name: Smoke test - diagnostics (every check except "models installed" must pass)
+      shell: pwsh
+      run: |
+        $env:OVT_HOME = "$PWD\smoke_home"
+        & "dist\OfflineVideoTranslator\ovt-cli.exe" diag | Tee-Object smoke.txt
+        $bad = Select-String -Path smoke.txt -Pattern "^\[FAIL\]" | Where-Object { $_.Line -notmatch "models installed" }
+        if ($bad) { $bad; exit 1 }
+
+    - name: Smoke test - the GUI starts and closes by itself
+      shell: pwsh
+      run: |
+        $env:OVT_HOME = "$PWD\smoke_home"; $env:OVT_SMOKE_QUIT_MS = "4000"
+        $p = Start-Process -FilePath "dist\OfflineVideoTranslator\OfflineVideoTranslator.exe" -PassThru -Wait
+        "GUI exit code: $($p.ExitCode)"
+        if ($p.ExitCode -ne 0) { exit 1 }
+
+    - name: Zip
+      shell: pwsh
+      run: Compress-Archive -Path dist\OfflineVideoTranslator -DestinationPath OfflineVideoTranslator-Portable.zip
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: OfflineVideoTranslator-Portable
+        path: OfflineVideoTranslator-Portable.zip

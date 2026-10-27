@@ -27,7 +27,7 @@ def test_export_mp4_uses_mov_text_and_never_overwrites(ff, media, tmp_path):
     import subprocess
     mp4 = tmp_path / "a.mp4"
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=160x120:r=5:d=4", "-f", "lavfi", "-i",
-                    "sine=f=300:d=4", "-c:v", "libx264", "-c:a", "aac", str(mp4)], check=True)
+                    "sine=f=300:d=4", "-c:v", "mpeg4", "-c:a", "aac", str(mp4)], check=True)
     srt = sub.write_srt([sub.Cue(1, 2, "اختبار")], tmp_path / "a.ar.srt")
     o1 = export_with_subtitles(ff, mp4, srt)
     o2 = export_with_subtitles(ff, mp4, srt)

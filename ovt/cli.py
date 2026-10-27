@@ -58,7 +58,17 @@ def _log_error(paths, exc) -> Path:
     return f
 
 
+def force_utf8_console():
+    """Windows consoles/pipes often use cp1252/cp437: printing Arabic paths or JSON would crash."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass            # frozen windowed exe has no console streams
+
+
 def main(argv=None) -> int:
+    force_utf8_console()
     ap = argparse.ArgumentParser(prog="ovt", description="Offline Video Translator (engine test CLI)")
     ap.add_argument("--home", help="app home (default: program folder or $OVT_HOME)")
     ap.add_argument("--allow-network", action="store_true", help="only for the download command")

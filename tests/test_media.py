@@ -62,10 +62,11 @@ def test_extract_embedded_subtitle(ff, media, tmp_path):
 
 @pytest.mark.slow
 def test_three_hour_file_streams_without_loading_into_memory(ff, tmp_path):
-    import resource, subprocess, time
+    resource = pytest.importorskip("resource")           # Unix only
+    import subprocess, time
     big = tmp_path / "long 3h.mkv"
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=black:s=64x48:r=1:d=10800",
-                    "-f", "lavfi", "-i", "sine=f=300:d=10800", "-c:v", "libx264", "-preset", "ultrafast",
+                    "-f", "lavfi", "-i", "sine=f=300:d=10800", "-c:v", "mpeg4", "-preset", "ultrafast",
                     "-c:a", "aac", "-b:a", "16k", str(big)], check=True)
     info = ff.probe(big)
     assert abs(info.duration - 10800) < 5

@@ -1,6 +1,7 @@
 """Explicit model downloads (never called implicitly). Resumable, size-checked, cancellable.
 Network access is only opened inside `netguard.temporarily_online(...)`, so offline mode is restored
 afterwards no matter what happens."""
+import http.client
 import json
 import threading
 import urllib.error
@@ -51,7 +52,10 @@ def download_file(url: str, dest, expected_sha256: Optional[str] = None,
                 while True:
                     if cancel is not None and cancel.is_set():
                         raise CancelledError("Download cancelled (partial file kept for resume).")
-                    b = resp.read(chunk)
+                    try:
+                        b = resp.read(chunk)
+                    except (OSError, http.client.HTTPException) as e:     # reset/abort/timeout mid-transfer
+                        raise OVTError("Download interrupted (%s). Run it again to resume from %d bytes." % (e, done)) from e
                     if not b:
                         break
                     f.write(b)

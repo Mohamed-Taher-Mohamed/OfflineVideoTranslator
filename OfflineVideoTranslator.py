@@ -6,6 +6,8 @@ import sys
 
 
 def run():
+    from ovt.cli import force_utf8_console
+    force_utf8_console()
     if "--diag" in sys.argv:
         from ovt.config import Paths
         from ovt.diagnostics import format_report, run_diagnostics

@@ -1,0 +1,13 @@
+# Copy THIS text once into the hidden file  .github/workflows/build-windows.yml  (replace its whole content).
+# It never needs to change again: all build logic is in ci/build/action.yml (a normal folder).
+name: Build Windows Portable
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./ci/build

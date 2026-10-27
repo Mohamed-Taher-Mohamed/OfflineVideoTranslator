@@ -55,6 +55,13 @@ Chunking, progress, cancel+resume, fingerprints (ASR change redoes ASR; glossary
 `ovt-cli models import` (tiny NLLB-style folder) -> OK; `ovt-cli selftest-mt --src-lang en` -> ran CTranslate2 + SentencePiece from the frozen app and honestly reported `has_target_script:false` (random model);
 `OfflineVideoTranslator --diag` -> 9 of 10 checks pass, only "models installed" fails (no real models) — the expected honest result.
 
+## 5b. First real Windows CI run (GitHub Actions) — what it found
+- ~55 tests passed on Windows; every test that generates a test video errored: the LGPL ffmpeg build has **no libx264**
+  (ffmpeg exit 3165764104 = AVERROR_ENCODER_NOT_FOUND). Test-only problem (the product never re-encodes video). Fixed: tests use `mpeg4`.
+- Hardened afterwards (found by reviewing Windows differences, regression-tested on Linux): UTF-8 console output (cp1252 crashed on Arabic paths),
+  mid-transfer connection resets in the downloader, Unix-only `resource` import in the slow test.
+- Still unknown on Windows until the next run: the rest of the suite behind the fixture (GUI tests, Arabic paths in ffmpeg on NTFS, PyInstaller build).
+
 ## 6. What YOU do at the end (one session, in this order)
 A. Get the Windows build without installing anything: create a GitHub repo, upload this project, Actions -> "Build Windows Portable" -> Run workflow, download the artifact zip. If a step fails, send me the red log text.
 B. Unzip; double-click `OfflineVideoTranslator.exe`; Logs page -> **System check**; send me the text (only "models installed" should fail).

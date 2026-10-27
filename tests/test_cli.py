@@ -41,3 +41,16 @@ def test_damaged_asr_model_gives_clear_error_and_log(tmp_path, capsys):
     err = capsys.readouterr().err
     assert rc == 1 and "model_integrity" in err and "Traceback" not in err
     assert "Could not load the speech model" in (tmp_path / "h" / "logs" / "errors.log").read_text(encoding="utf-8")
+
+
+def test_arabic_paths_print_even_with_a_legacy_console_encoding(tmp_path):
+    """Windows consoles/pipes use cp1252: Arabic output must not crash (regression for a real failure mode)."""
+    import os, subprocess, sys
+    wav = tmp_path / "ملف عربي.wav"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "sine=f=300:d=2", str(wav)], check=True)
+    env = dict(os.environ, PYTHONIOENCODING="cp1252")
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    r = subprocess.run([sys.executable, "-m", "ovt", "--home", str(tmp_path / "h"), "probe", str(wav)],
+                       capture_output=True, env=env, cwd=root)
+    assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+    assert "ملف عربي.wav" in r.stdout.decode("utf-8")
