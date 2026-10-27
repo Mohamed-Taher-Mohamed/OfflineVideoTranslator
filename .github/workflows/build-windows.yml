@@ -1,77 +1,11 @@
 name: Build Windows Portable
-# Usage: push this project to a GitHub repo, open Actions -> "Build Windows Portable" -> Run workflow,
-# then download the artifact "OfflineVideoTranslator-Portable" (a zip). Nothing needs installing on your PC.
-# STATUS: written but NOT executed by the author (no access to GitHub runners from the dev sandbox).
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
-
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-
-      - name: Download ffmpeg (LGPL build)
-        shell: pwsh
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip" -OutFile ffmpeg.zip
-          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_tmp
-          New-Item -ItemType Directory -Force engines | Out-Null
-          Get-ChildItem -Recurse ffmpeg_tmp -Include ffmpeg.exe,ffprobe.exe | Copy-Item -Destination engines
-          Get-ChildItem -Recurse ffmpeg_tmp -Include LICENSE* | Select-Object -First 1 | Copy-Item -Destination engines\FFMPEG-LICENSE.txt
-          "$PWD\engines" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
-          .\engines\ffmpeg.exe -version | Select-Object -First 1
-
-      - name: Install dependencies
-        run: python -m pip install -r requirements.txt
-
-      - name: Run tests
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q
-
-      - name: Build with PyInstaller
-        run: python -m PyInstaller --noconfirm --clean packaging/ovt.spec
-
-      - name: Assemble portable folder
-        shell: pwsh
-        run: |
-          $root = "dist\OfflineVideoTranslator"
-          foreach ($d in "engines","models","settings","output","logs","temp") { New-Item -ItemType Directory -Force "$root\$d" | Out-Null }
-          Copy-Item engines\* "$root\engines" -Force
-          Copy-Item packaging\README_PORTABLE_AR.txt "$root\README.txt"
-          Copy-Item docs -Recurse "$root\docs"
-          "" | Out-File "$root\models\ضع النماذج هنا.txt"
-
-      - name: Smoke test the built program (diagnostics)
-        shell: pwsh
-        run: |
-          $env:OVT_HOME = "$PWD\smoke_home"
-          & "dist\OfflineVideoTranslator\ovt-cli.exe" diag | Tee-Object smoke.txt
-          # models are legitimately missing in CI; every OTHER check must pass
-          $bad = Select-String -Path smoke.txt -Pattern "^\[FAIL\]" | Where-Object { $_.Line -notmatch "models installed" }
-          if ($bad) { $bad; exit 1 }
-
-      - name: Smoke test the GUI starts and closes cleanly
-        shell: pwsh
-        run: |
-          $env:OVT_HOME = "$PWD\smoke_home"; $env:OVT_SMOKE_QUIT_MS = "4000"
-          $p = Start-Process -FilePath "dist\OfflineVideoTranslator\OfflineVideoTranslator.exe" -PassThru -Wait
-          "GUI exit code: $($p.ExitCode)"
-          if ($p.ExitCode -ne 0) { exit 1 }
-
-      - name: Zip
-        shell: pwsh
-        run: Compress-Archive -Path dist\OfflineVideoTranslator -DestinationPath OfflineVideoTranslator-Portable.zip
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: OfflineVideoTranslator-Portable
-          path: OfflineVideoTranslator-Portable.zip
+      - uses: ./ci/build
