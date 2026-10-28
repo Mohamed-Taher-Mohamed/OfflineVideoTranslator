@@ -20,8 +20,9 @@ class ASRBackend(ABC):
     name = "abstract"
 
     @abstractmethod
-    def transcribe(self, wav_path, language: Optional[str] = None) -> Tuple[str, float, List[Segment]]:
-        """Return (detected_or_given_language, language_probability, segments with times relative to the wav)."""
+    def transcribe(self, wav_path, language: Optional[str] = None, on_segment=None) -> Tuple[str, float, List[Segment]]:
+        """Return (detected_or_given_language, language_probability, segments with times relative to the wav).
+        `on_segment(seg)` is called after every decoded segment (progress, live text, cancellation: it may raise)."""
 
     def close(self):
         pass

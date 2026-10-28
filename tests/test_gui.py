@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+os.environ.setdefault("OVT_PREVIEW_AUDIO", "0")
 
 import pytest
 from PySide6.QtCore import Qt
@@ -31,9 +32,9 @@ def qapp():
 
 
 class SlowASR(FakeASR):
-    def transcribe(self, wav, language=None):
+    def transcribe(self, wav, language=None, on_segment=None):
         time.sleep(0.4)
-        return super().transcribe(wav, language)
+        return super().transcribe(wav, language, on_segment)
 
 
 def wait_for(cond, timeout=25):
@@ -75,7 +76,7 @@ def win(qapp, tmp_path, monkeypatch):
 
 
 def test_builds_all_pages_both_languages_and_themes(win):
-    assert win.nav.count() == 7 and win.windowTitle() == "مترجم الفيديو بدون إنترنت"
+    assert win.nav.count() == 8 and win.windowTitle() == "مترجم الفيديو بدون إنترنت"
     assert QApplication.instance().layoutDirection() == Qt.RightToLeft
     win.ctx.settings.ui_language, win.ctx.settings.theme = "en", "dark"
     win.build()
@@ -221,7 +222,7 @@ def test_privacy_test_really_blocks_and_logs_and_clear(win):
 
 def test_logs_page_shows_job_errors_and_exports(win, media, tmp_path):
     class Boom(FakeASR):
-        def transcribe(self, wav, language=None):
+        def transcribe(self, wav, language=None, on_segment=None):
             raise RuntimeError("boom")
     win.asr_cls["cls"] = Boom
     home = win.pages["nav_home"]
@@ -291,3 +292,29 @@ def test_glossary_editor_roundtrip_and_used_by_engine(win, tmp_path):
     cues = [Cue(0, 2, "", source_text="Dr. Snape teaches at Hogwarts.")]
     translate_cues(FakeMT(), cues, "en", "ar", Glossary.load(f))
     assert "Hogwarts" in cues[0].text and "د." in cues[0].text and "XQ" not in cues[0].text
+
+
+def test_heartbeat_keeps_time_moving_and_slow_speed_warns(win, media):
+    import time as _t
+    from ovt.pipeline import Progress
+    home = win.pages["nav_home"]
+    home.add_paths([str(media["multi"])])
+    home.thread = object()                                    # pretend a job is running
+    home._job_t0 = _t.time() - 125
+    home._last_p = Progress("asr", 0.1, "Recognising speech 1/5", 1, 5, 125.0, 900.0, "", 0.2)
+    home._last_event = _t.time() - 60                         # no progress event for a minute
+    home.tick()
+    txt = home.lbl_info.text()
+    assert "2:05" in txt and "0.20" in txt and home.ctx.t("slow_hint") in txt     # elapsed keeps moving, slow warning shown
+    assert home.ctx.t("still_working") in home.lbl_stage.text()
+    home._last_p = Progress("asr", 0.1, "", 1, 5, 10.0, None, "", 2.5)
+    home.tick()
+    assert home.ctx.t("slow_hint") not in home.lbl_info.text()
+    home.thread = None
+
+
+def test_recognition_quality_setting_is_saved(win):
+    sp = win.pages["nav_settings"]
+    sp.cb_beam.setCurrentIndex(sp.cb_beam.findData(1))
+    sp.save()
+    assert Settings.load(win.ctx.paths).beam_size == 1

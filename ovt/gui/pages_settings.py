@@ -135,7 +135,11 @@ class SettingsPage(QWidget):
             self.cb_dev.addItem(d, d)
         self.cb_dev.setCurrentIndex(self.cb_dev.findData(s.device))
         self.cb_keep = QCheckBox(t("set_keep_tmp")); self.cb_keep.setChecked(s.keep_temp)
-        f.addRow(t("set_chunk"), self.sp_chunk); f.addRow(t("set_device"), self.cb_dev); f.addRow(self.cb_keep)
+        self.cb_beam = QComboBox()
+        for v in (1, 3, 5):
+            self.cb_beam.addItem(t("beam_%d" % v), v)
+        self.cb_beam.setCurrentIndex(max(0, self.cb_beam.findData(s.beam_size)))
+        f.addRow(t("set_beam"), self.cb_beam); f.addRow(t("set_chunk"), self.sp_chunk); f.addRow(t("set_device"), self.cb_dev); f.addRow(self.cb_keep)
         lay.addWidget(g)
 
         row = QHBoxLayout()
@@ -194,6 +198,7 @@ class SettingsPage(QWidget):
         s.max_chars_per_line, s.max_lines, s.min_cue_seconds = self.sp_chars.value(), self.sp_lines.value(), self.sp_min.value()
         s.utf8_bom, s.rtl_marks = self.cb_bom.isChecked(), self.cb_rtl.isChecked()
         s.chunk_seconds, s.device, s.keep_temp = self.sp_chunk.value(), self.cb_dev.currentData(), self.cb_keep.isChecked()
+        s.beam_size = self.cb_beam.currentData()
         s.save(paths)
         if s.offline_mode:
             netguard.enable_offline(paths.logs / "network.log")

@@ -75,12 +75,16 @@ class FakeASR(ASRBackend):
     def __init__(self, lang="en", speech=True):
         self.lang, self.speech = lang, speech
 
-    def transcribe(self, wav, language=None):
+    def transcribe(self, wav, language=None, on_segment=None):
         FakeASR.calls += 1
         if not self.speech:
             return self.lang, 0.5, []
         # one segment at 1.0-2.5 s of every window, text carries a counter so order is checkable
-        return language or self.lang, 0.99, [Segment(1.0, 2.5, "This is sentence number %d." % FakeASR.calls, 0.9)]
+        segs = [Segment(1.0, 2.5, "This is sentence number %d." % FakeASR.calls, 0.9)]
+        for s in segs:
+            if on_segment:
+                on_segment(s)
+        return language or self.lang, 0.99, segs
 
 
 class FakeMT(Translator):

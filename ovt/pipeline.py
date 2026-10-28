@@ -25,6 +25,7 @@ from .fsutil import atomic_write_json, atomic_write_text, ensure_free_space, rea
 from .glossary import Glossary
 from .media import FFmpeg, MediaInfo, iso3_to_1
 from . import subtitles as sub
+from .preview_logic import clock, tail_lines
 from .translate.service import translate_cues
 
 
@@ -65,6 +66,8 @@ class Progress:
     chunks: int = 0
     elapsed: float = 0.0
     eta: Optional[float] = None
+    detail: str = ""                     # live text shown in the GUI (recognised / translated lines)
+    speed: Optional[float] = None         # audio seconds recognised per wall-clock second (1.0 = real time)
 
 
 @dataclass
@@ -109,10 +112,10 @@ class Pipeline:
         if self.cancel.is_set():
             raise CancelledError("Job cancelled. Progress is saved; run again to resume.")
 
-    def _emit(self, stage, frac, msg="", chunk=0, chunks=0):
+    def _emit(self, stage, frac, msg="", chunk=0, chunks=0, detail="", speed=None):
         el = time.time() - self._t0
         eta = (el / frac - el) if frac > 0.03 else None
-        self._progress(Progress(stage, min(frac, 1.0), msg, chunk, chunks, el, eta))
+        self._progress(Progress(stage, min(frac, 1.0), msg, chunk, chunks, el, eta, detail, speed))
 
     def _model_fp(self, kind, model_id):
         if not self.models or not model_id:
@@ -203,8 +206,17 @@ class Pipeline:
                 try:
                     self.ff.extract_wav(o.input_path, o.audio_track, start, dur, wav)
                     self._check_cancel()
-                    self._emit("asr", 0.7 * (k + 0.4) / n, "Recognising speech %d/%d" % (k + 1, n), k + 1, n)
-                    clang, prob, segs = backend.transcribe(wav, lang)
+                    self._emit("asr", 0.7 * (k + 0.05) / n, "Recognising speech %d/%d" % (k + 1, n), k + 1, n)
+                    t_rec = time.time()
+
+                    def on_seg(seg, k=k, dur=dur, start=start, t_rec=t_rec):
+                        self._check_cancel()                      # pause/cancel reacts within one segment
+                        inside = min(max(seg.end, 0.0), dur) / dur if dur > 0 else 1.0
+                        wall = max(time.time() - t_rec, 1e-6)
+                        self._emit("asr", 0.7 * (k + 0.05 + 0.9 * inside) / n, "Recognising speech %d/%d" % (k + 1, n),
+                                   k + 1, n, detail="[%s] %s" % (clock(start + seg.start), seg.text),
+                                   speed=min(max(seg.end, 0.0), dur) / wall)
+                    clang, prob, segs = backend.transcribe(wav, lang, on_segment=on_seg)
                 finally:
                     if not o.keep_temp and wav.exists():
                         wav.unlink()
@@ -217,7 +229,8 @@ class Pipeline:
                 atomic_write_json(cf, {"fingerprint": fp, "language": clang, "language_prob": prob,
                                        "chunk_start": start, "chunk_end": end, "segments": [s.to_dict() for s in segs]})
                 segments += segs
-                self._emit("asr", 0.7 * (k + 1) / n, "Chunk %d/%d done" % (k + 1, n), k + 1, n)
+                self._emit("asr", 0.7 * (k + 1) / n, "Chunk %d/%d done" % (k + 1, n), k + 1, n,
+                           detail=tail_lines(["[%s] %s" % (clock(s.start), s.text) for s in segs]) if segs else "")
         finally:
             if backend is not None:
                 backend.close()
@@ -276,13 +289,20 @@ class Pipeline:
             saved = read_json(tf)
             cache = saved["cache"] if saved and saved.get("fingerprint") == tfp else {}
 
+            sample = []
+
+            def on_unit(src_text, tgt_text):
+                sample.append("EN: %s\nAR: %s" % (src_text, tgt_text))
+
             def on_batch(c, done, total):
                 atomic_write_json(tf, {"fingerprint": tfp, "cache": c})
-                self._emit("translate", 0.7 + 0.25 * done / max(total, 1), "Translating %d/%d" % (done, total))
+                self._emit("translate", 0.7 + 0.25 * done / max(total, 1), "Translating %d/%d" % (done, total),
+                           detail="\n".join(sample[-3:]))
+                sample.clear()
 
             self._emit("translate", 0.7, "Translating")
             res.warnings += translate_cues(translator, cues, lang, tgt, glossary, o.context_merge,
-                                           cache=cache, on_batch=on_batch, check_cancel=self._check_cancel)
+                                           cache=cache, on_batch=on_batch, on_unit=on_unit, check_cancel=self._check_cancel)
             atomic_write_json(tf, {"fingerprint": tfp, "cache": cache})
         finally:
             translator.close()
@@ -313,7 +333,7 @@ class Pipeline:
             res.outputs["source_srt"] = str(p)
         proj = self._target(out_dir, src_path, ".ovtproject.json", o)
         atomic_write_json(proj, {"ovt_version": __version__, "source_file": src_path.name,
-                                 "source_language": res.source_language, "target_language": o.target_lang,
+                                 "source_path": str(src_path.resolve()), "source_language": res.source_language, "target_language": o.target_lang,
                                  "options": asdict(o), "warnings": res.warnings,
                                  "cues": [c.to_dict() for c in cues]})
         res.outputs["project"] = str(proj)

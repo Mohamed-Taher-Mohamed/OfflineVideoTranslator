@@ -3,7 +3,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+import time
+
+from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import QHeaderView
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
                                QMessageBox, QProgressBar, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
@@ -50,6 +52,7 @@ def open_folder(path):
 
 class HomePage(QWidget):
     open_in_editor = Signal(str)
+    open_in_preview = Signal(str, str)
     status_message = Signal(str)
 
     def __init__(self, ctx, parent=None):
@@ -59,13 +62,19 @@ class HomePage(QWidget):
         self.current = None            # QueueItem being processed
         self.stop_reason = ""          # "pause" | "cancel"
         self.setAcceptDrops(True)
+        self._job_t0 = 0.0
+        self._last_p = None
+        self._last_event = 0.0
+        self.heartbeat = QTimer(self)
+        self.heartbeat.timeout.connect(self.tick)
+        self.heartbeat.start(1000)
         t = ctx.t
         lay = QVBoxLayout(self)
         row = QHBoxLayout()
         self.btn = {}
         for key, primary in (("add_videos", False), ("remove", False), ("start_all", True), ("pause", False),
                              ("resume", False), ("cancel", False), ("retry", False), ("open_folder", False),
-                             ("report", False), ("edit_result", False), ("export_video", False)):
+                             ("report", False), ("preview_btn", False), ("edit_result", False), ("export_video", False)):
             b = QPushButton(t(key))
             if primary:
                 b.setObjectName("primary")
@@ -122,6 +131,10 @@ class HomePage(QWidget):
         lay.addLayout(st)
         lay.addWidget(self.lbl_stage)
         lay.addWidget(self.lbl_info)
+        lay.addWidget(QLabel(t("live_title")))
+        self.live = QPlainTextEdit(); self.live.setReadOnly(True); self.live.setMaximumBlockCount(500)
+        self.live.setMaximumHeight(130)
+        lay.addWidget(self.live)
 
         self.btn["add_videos"].clicked.connect(self.pick_files)
         self.btn["remove"].clicked.connect(self.remove_selected)
@@ -133,6 +146,7 @@ class HomePage(QWidget):
         self.btn["open_folder"].clicked.connect(self.open_results)
         self.btn["report"].clicked.connect(self.show_report)
         self.btn["edit_result"].clicked.connect(self.edit_selected)
+        self.btn["preview_btn"].clicked.connect(self.preview_selected)
         self.btn["export_video"].clicked.connect(self.export_selected)
         self.table.itemSelectionChanged.connect(self.on_select)
         self.cb_track.currentIndexChanged.connect(self.store_detail)
@@ -240,6 +254,7 @@ class HomePage(QWidget):
         b["remove"].setEnabled(it is not None and it.status != "running")
         b["open_folder"].setEnabled(it is not None and it.result is not None and bool(it.result.outputs))
         b["report"].setEnabled(it is not None and it.result is not None)
+        b["preview_btn"].setEnabled(it is not None and it.result is not None and ("project" in it.result.outputs or "srt" in it.result.outputs))
         b["export_video"].setEnabled(not busy and it is not None and it.result is not None and "srt" in it.result.outputs)
         b["edit_result"].setEnabled(it is not None and it.result is not None and "project" in it.result.outputs)
 
@@ -330,6 +345,8 @@ class HomePage(QWidget):
             QMessageBox.warning(self, nxt.info.name, problem)
             return self.run_next()
         self.current, self.stop_reason = nxt, ""
+        self.live.appendPlainText("── %s ──" % nxt.info.name)
+        self._job_t0, self._last_p, self._last_event = time.time(), None, time.time()
         nxt.status, nxt.error, nxt.progress = "running", "", 0.0
         self.thread = JobThread(self.build_options(nxt), self.ctx.builder)
         self.thread.progress.connect(self.on_progress)
@@ -345,13 +362,34 @@ class HomePage(QWidget):
         if not it:
             return
         it.progress = p.fraction
+        if p.detail:
+            self.live.appendPlainText(p.detail)
         self.update_progress_row(it)
         self.overall.setValue(int(self.overall_fraction() * 1000))
+        self._last_p, self._last_event = p, time.time()
         chunk = (" — %s %d/%d" % (self.ctx.t("chunk"), p.chunk, p.chunks)) if p.chunks else ""
         self.lbl_stage.setText("%s: %s%s" % (self.ctx.t("stage"), self.ctx.t("stage_" + p.stage), chunk))
+        self.render_info(p, p.elapsed)
+
+    def render_info(self, p, elapsed):
+        t = self.ctx.t
         eta = fmt_dur(p.eta) if p.eta is not None else "—"
-        self.lbl_info.setText("%s: %s    %s: %s    %s: %s" % (self.ctx.t("elapsed"), ltr(fmt_dur(p.elapsed)), self.ctx.t("eta"), ltr(eta),
-                                                              self.ctx.t("model"), ltr(self.model_label())))
+        txt = "%s: %s    %s: %s    %s: %s" % (t("elapsed"), ltr(fmt_dur(elapsed)), t("eta"), ltr(eta), t("model"), ltr(self.model_label()))
+        if p.speed:
+            txt += "    %s: %s" % (t("speed_label"), ltr("%.2f%s" % (p.speed, t("speed_unit"))))
+            if p.speed < 0.5:
+                txt += "\n" + t("slow_hint")
+        self.lbl_info.setText(txt)
+
+    def tick(self):
+        """1 Hz heartbeat: keeps the elapsed time moving even while one long step reports nothing."""
+        if not self.thread or not self._last_p:
+            return
+        elapsed = time.time() - self._job_t0
+        self.render_info(self._last_p, elapsed)
+        if time.time() - self._last_event > 20:
+            self.lbl_stage.setText("%s: %s — %s" % (self.ctx.t("stage"), self.ctx.t("stage_" + self._last_p.stage),
+                                                    self.ctx.t("still_working")))
 
     def overall_fraction(self):
         its = self.ctx.items
@@ -421,6 +459,12 @@ class HomePage(QWidget):
         it = self.selected()
         if it and it.result and it.result.outputs:
             open_folder(Path(next(iter(it.result.outputs.values()))).parent)
+
+    def preview_selected(self):
+        it = self.selected()
+        if it and it.result:
+            subs = it.result.outputs.get("project") or it.result.outputs.get("srt")
+            self.open_in_preview.emit(it.path, subs)
 
     def edit_selected(self):
         it = self.selected()

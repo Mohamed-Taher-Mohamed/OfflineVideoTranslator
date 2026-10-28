@@ -63,3 +63,24 @@ def test_hub_offline_flags_follow_the_guard_and_online_window(tmp_path, monkeypa
     assert os.environ["HF_HUB_OFFLINE"] == "1" and C.HF_HUB_OFFLINE is True       # restored afterwards
     netguard.disable_offline()                                                      # user turned offline mode off
     assert C.HF_HUB_OFFLINE is False and os.environ.get("HF_HUB_OFFLINE") != "1"
+
+
+def test_backend_streams_segments_to_callback_and_uses_configured_beam(tmp_path, monkeypatch):
+    import faster_whisper
+    seen = {}
+
+    class FakeModel:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, audio, **k):
+            seen.update(k)
+            info = type("I", (), {"language": "en", "language_probability": 0.9})()
+            segs = [type("S", (), {"start": float(i), "end": i + 0.5, "text": " t%d " % i, "avg_logprob": -0.2, "no_speech_prob": 0.0})()
+                    for i in range(3)]
+            return (s for s in segs), info                     # a generator, like the real library
+    monkeypatch.setattr(faster_whisper, "WhisperModel", FakeModel)
+    from ovt.asr.faster_whisper_backend import FasterWhisperBackend
+    got = []
+    _, _, segs = FasterWhisperBackend(str(tmp_path), beam_size=1).transcribe(make_wav(tmp_path / "b.wav"), on_segment=got.append)
+    assert seen["beam_size"] == 1 and [s.text for s in got] == ["t0", "t1", "t2"] and len(segs) == 3

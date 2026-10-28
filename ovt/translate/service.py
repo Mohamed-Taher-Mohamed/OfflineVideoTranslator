@@ -68,6 +68,7 @@ def translate_cues(translator, cues: List[Cue], src: str, tgt: str, glossary: Op
                    context_merge: bool = True, batch_size: int = 16,
                    cache: Optional[Dict[str, str]] = None,
                    on_batch: Optional[Callable[[Dict[str, str], int, int], None]] = None,
+                   on_unit: Optional[Callable[[str, str], None]] = None,
                    check_cancel: Callable[[], None] = lambda: None) -> List[str]:
     """Fills cue.text for every cue; returns warnings. `cache` maps unit-index -> translated unit."""
     glossary = glossary or Glossary()
@@ -92,6 +93,8 @@ def translate_cues(translator, cues: List[Cue], src: str, tgt: str, glossary: Op
         for u, o in zip(idxs, out):
             restored, lost = Glossary.restore(o or "", tables[u])
             cache[str(u)] = restored
+            if on_unit:
+                on_unit(" ".join(cues[i].source_text.replace("\n", " ").strip() for i in units[u]), restored)
             if lost:
                 warnings.append("cue %d: glossary term lost by the engine: %s" % (units[u][0] + 1, ", ".join(lost)))
         if on_batch:

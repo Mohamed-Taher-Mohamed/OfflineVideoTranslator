@@ -24,7 +24,7 @@ def build_pipeline(paths, settings, opts: JobOptions, progress=None, cancel=None
     def asr_factory():
         from .asr.faster_whisper_backend import FasterWhisperBackend
         m = mm.require("asr", opts.asr_model_id)
-        return FasterWhisperBackend(m["path"], settings.device, settings.compute_type)
+        return FasterWhisperBackend(m["path"], settings.device, settings.compute_type, beam_size=settings.beam_size)
 
     def mt_factory():
         from .translate.ct2_backend import CT2Translator

@@ -3,7 +3,8 @@ faster-whisper==1.2.1
 ctranslate2>=4.5
 av>=15,<17              # av 19 removed an argument faster-whisper 1.2.1 passes (TypeError: metadata_errors)
 sentencepiece>=0.2
-PySide6-Essentials>=6.7
+PySide6-Essentials>=6.7,<7
+PySide6-Addons>=6.7,<7      # QtMultimedia: the video preview (adds size; same release train as Essentials)
 pyinstaller>=6.6
 pytest>=8
 # Not pip: ffmpeg.exe + ffprobe.exe go in engines/ (the CI workflow downloads an LGPL build automatically).

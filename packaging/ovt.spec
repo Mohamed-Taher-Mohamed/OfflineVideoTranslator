@@ -7,7 +7,8 @@ datas, binaries, hidden = [], [], []
 for pkg in ("faster_whisper", "ctranslate2", "onnxruntime", "av", "tokenizers", "sentencepiece"):
     d, b, h = collect_all(pkg)
     datas += d; binaries += b; hidden += h
-hidden += ["ovt.gui.main_window", "ovt.cli", "ovt.diagnostics"]
+hidden += ["ovt.gui.main_window", "ovt.gui.pages_preview", "ovt.cli", "ovt.diagnostics",
+           "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets"]
 
 excludes = ["torch", "torchaudio", "torchvision", "tensorflow", "stanza", "spacy", "argostranslate",
             "matplotlib", "pandas", "scipy", "IPython", "notebook", "tkinter", "PySide6.QtWebEngineCore",

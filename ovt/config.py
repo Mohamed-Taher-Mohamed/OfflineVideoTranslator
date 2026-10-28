@@ -59,6 +59,7 @@ class Settings:
     glossary_path: str = ""
     output_dir: str = ""                 # "" = next to each video
     context_merge: bool = True
+    beam_size: int = 3                   # 1 = fastest, 3 = balanced, 5 = most accurate
     theme: str = "light"
 
     @classmethod
