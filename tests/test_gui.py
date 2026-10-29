@@ -318,3 +318,53 @@ def test_recognition_quality_setting_is_saved(win):
     sp.cb_beam.setCurrentIndex(sp.cb_beam.findData(1))
     sp.save()
     assert Settings.load(win.ctx.paths).beam_size == 1
+
+
+def test_llm_engine_settings_test_button_and_persistence(win, tmp_path):
+    """Settings page against a REAL local server imitating an OpenAI-compatible API."""
+    import http.server, threading
+    from test_llm_backend import FakeLLM
+    FakeLLM.requests = []
+    FakeLLM.behaviour.update({"skip_first_n3": False, "think": False, "fail": False, "models": ["qwen2.5:7b", "gemma3:12b"]})
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeLLM)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    sp = win.pages["nav_settings"]
+    assert not sp.ed_llm_url.isEnabled()                              # built-in engine selected: LLM fields disabled
+    sp.cb_engine.setCurrentIndex(sp.cb_engine.findData("llm"))
+    assert sp.ed_llm_url.isEnabled() and not sp.cb_cloud.isEnabled()  # local URL: no cloud consent box needed
+    sp.ed_llm_url.setText("http://127.0.0.1:%d/v1" % srv.server_address[1])
+    sp.refresh_llm_models()
+    assert wait_for(lambda: sp.llm_job is None and sp.cb_llm_model.count() == 2)
+    sp.cb_llm_model.setCurrentText("qwen2.5:7b")
+    sp.test_llm()
+    assert wait_for(lambda: sp.llm_job is None and "ع:Break a leg" in sp.msg.text())
+    sp.save()
+    on_disk = Settings.load(win.ctx.paths)
+    assert on_disk.mt_engine == "llm" and on_disk.llm_model == "qwen2.5:7b" and on_disk.llm_base_url.startswith("http://127.0.0.1:")
+    sp.ed_llm_url.setText("https://api.example.com/v1")
+    assert sp.cb_cloud.isEnabled() and sp.ed_llm_key.isEnabled()      # cloud URL: consent + key fields appear
+    srv.shutdown()
+
+
+def test_time_range_fields_validate_store_and_run(win, media, tmp_path):
+    home = win.pages["nav_home"]
+    home.add_paths([str(media["multi"])])
+    home.table.setCurrentCell(0, 0)
+    it = win.ctx.items[0]
+    msgs = []
+    home.status_message.connect(msgs.append)
+    home.ed_from.setText("abc"); home.ed_from.editingFinished.emit()
+    assert it.range_start == 0 and msgs[-1] == home.ctx.t("range_invalid")             # bad format: rejected, nothing stored
+    home.ed_from.setText("6"); home.ed_to.setText("4"); home.ed_from.editingFinished.emit()
+    assert it.range_end == 0 and msgs[-1] == home.ctx.t("range_bad_order")
+    home.ed_from.setText("30"); home.ed_to.setText(""); home.ed_from.editingFinished.emit()
+    assert it.range_start == 0 and msgs[-1] == home.ctx.t("range_past_end")            # 12 s video
+    home.ed_from.setText("0:02"); home.ed_to.setText("0:09"); home.ed_to.editingFinished.emit()
+    assert (it.range_start, it.range_end) == (2.0, 9.0)
+    assert "0:02–0:09" in home.table.item(0, 2).text().replace("\u200e", "")           # shown in the duration column
+    o = home.build_options(it)
+    assert (o.range_start, o.range_end) == (2.0, 9.0)
+    run_to_end(win)
+    assert it.status == "done" and Path(it.result.outputs["srt"]).name == "فيديو اختبار 1.t0002-0009.ar.srt"
+    cues = __import__("ovt.subtitles", fromlist=["x"]).load_subtitles(it.result.outputs["srt"])
+    assert all(2.0 <= c.start < 9.0 for c in cues)

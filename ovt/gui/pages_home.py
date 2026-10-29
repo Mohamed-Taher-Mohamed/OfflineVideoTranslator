@@ -9,11 +9,13 @@ from PySide6.QtCore import QTimer, Qt, Signal
 from PySide6.QtWidgets import QHeaderView
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
                                QMessageBox, QProgressBar, QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout,
-                               QWidget, QPlainTextEdit, QDialog)
+                               QWidget, QPlainTextEdit, QDialog, QLineEdit)
 
 from ..errors import OVTError
 from ..media import SUPPORTED_EXT
 from ..pipeline import JobOptions
+from ..preview_logic import clock, parse_clock
+from ..translate.llm_backend import engine_tag
 from .context import QueueItem
 from .i18n import LANG_NAMES
 from .workers import JobThread
@@ -70,18 +72,19 @@ class HomePage(QWidget):
         self.heartbeat.start(1000)
         t = ctx.t
         lay = QVBoxLayout(self)
-        row = QHBoxLayout()
         self.btn = {}
-        for key, primary in (("add_videos", False), ("remove", False), ("start_all", True), ("pause", False),
-                             ("resume", False), ("cancel", False), ("retry", False), ("open_folder", False),
-                             ("report", False), ("preview_btn", False), ("edit_result", False), ("export_video", False)):
-            b = QPushButton(t(key))
-            if primary:
-                b.setObjectName("primary")
-            self.btn[key] = b
-            row.addWidget(b)
-        row.addStretch(1)
-        lay.addLayout(row)
+        rows = (("add_videos", "remove", "start_all", "pause", "resume", "cancel", "retry"),
+                ("open_folder", "report", "preview_btn", "edit_result", "export_video"))
+        for keys in rows:                       # two rows: ten buttons do not fit in one line of a normal window
+            row = QHBoxLayout()
+            for key in keys:
+                b = QPushButton(t(key))
+                if key == "start_all":
+                    b.setObjectName("primary")
+                self.btn[key] = b
+                row.addWidget(b)
+            row.addStretch(1)
+            lay.addLayout(row)
 
         self.table = QTableWidget(0, len(COLS))
         self.table.setHorizontalHeaderLabels([t(c) for c in COLS])
@@ -110,6 +113,12 @@ class HomePage(QWidget):
         g.addWidget(self.lbl_subfile, 2, 1, 1, 3)
         g.addWidget(QLabel(t("target_lang")), 3, 0)
         g.addWidget(QLabel(t("arabic")), 3, 1)
+        self.ed_from, self.ed_to = QLineEdit(), QLineEdit()
+        self.ed_from.setPlaceholderText("0:00"); self.ed_to.setPlaceholderText("—")
+        g.addWidget(QLabel(t("range_from")), 4, 0); g.addWidget(self.ed_from, 4, 1)
+        g.addWidget(QLabel(t("range_to")), 4, 2); g.addWidget(self.ed_to, 4, 3)
+        hint = QLabel(t("range_hint")); hint.setObjectName("hint"); hint.setWordWrap(True)
+        g.addWidget(hint, 5, 0, 1, 4)
         self.cb_mode.addItem(t("mode_asr"), "asr")
         self.cb_mode.addItem(t("mode_embedded"), "embedded")
         self.cb_mode.addItem(t("mode_file"), "file")
@@ -154,6 +163,8 @@ class HomePage(QWidget):
         self.cb_sub.currentIndexChanged.connect(self.store_detail)
         self.cb_lang.currentIndexChanged.connect(self.store_detail)
         self.btn_subfile.clicked.connect(self.pick_subfile)
+        self.ed_from.editingFinished.connect(self.store_range)
+        self.ed_to.editingFinished.connect(self.store_range)
         self.refresh()
 
     # ---------- queue ----------
@@ -213,7 +224,9 @@ class HomePage(QWidget):
         self.table.blockSignals(True)
         self.table.setRowCount(len(self.ctx.items))
         for r, it in enumerate(self.ctx.items):
-            vals = [it.info.name, ltr(fmt_size(it.info.size_bytes)), ltr(fmt_dur(it.info.duration)), str(len(it.info.audio_tracks)),
+            vals = [it.info.name, ltr(fmt_size(it.info.size_bytes)),
+                    ltr(fmt_dur(it.info.duration) if not (it.range_start > 0 or it.range_end > 0) else "%s–%s / %s" % (
+                        clock(it.range_start), clock(it.range_end) if it.range_end > 0 else "…", fmt_dur(it.info.duration))), str(len(it.info.audio_tracks)),
                     it.detected_lang or it.src_lang or "—", t("st_" + it.status) + ((": " + it.error) if it.status == "error" else ""),
                     None, ltr(self.model_label())]
             for c, v in enumerate(vals):
@@ -274,9 +287,12 @@ class HomePage(QWidget):
             self.cb_sub.setCurrentIndex(max(0, it.subtitle_track) if self.cb_sub.count() else -1)
             self.cb_lang.setCurrentIndex(max(0, self.cb_lang.findData(it.src_lang)))
             self.lbl_subfile.setText(it.subtitle_file)
+            self.ed_from.setText(clock(it.range_start) if it.range_start > 0 else "")
+            self.ed_to.setText(clock(it.range_end) if it.range_end > 0 else "")
         editable = bool(it) and it.status in ("queued", "error", "cancelled", "paused")
-        for w in widgets:
+        for w in widgets + (self.ed_from, self.ed_to):
             w.setEnabled(editable)
+        for w in widgets:
             w.blockSignals(False)
         self.update_buttons()
 
@@ -290,6 +306,36 @@ class HomePage(QWidget):
         it.src_lang = self.cb_lang.currentData() or ""
         it.status = "queued" if it.status in ("error", "cancelled") else it.status
         self.refresh_row_only(it)
+
+    def range_error(self, it, t0, t1):
+        t = self.ctx.t
+        if t1 > 0 and t1 <= t0 + 1.0:
+            return t("range_bad_order")
+        if it.info.duration > 0 and t0 >= it.info.duration - 0.5:
+            return t("range_past_end")
+        return ""
+
+    def store_range(self):
+        it = self.selected()
+        if not it or it.status == "running":
+            return
+        try:
+            t0, t1 = parse_clock(self.ed_from.text()), parse_clock(self.ed_to.text())
+        except ValueError:
+            self.status_message.emit(self.ctx.t("range_invalid"))
+            self.ed_from.setStyleSheet("border:1px solid #cf222e;")
+            self.ed_to.setStyleSheet("border:1px solid #cf222e;")
+            return
+        self.ed_from.setStyleSheet(""); self.ed_to.setStyleSheet("")
+        err = self.range_error(it, t0, t1)
+        if err:
+            self.status_message.emit(err)
+            return
+        self.status_message.emit("")
+        it.range_start, it.range_end = t0, t1
+        if it.status in ("error", "cancelled"):
+            it.status = "queued"
+        self.refresh()
 
     def refresh_row_only(self, it):
         r = self.ctx.items.index(it)
@@ -315,15 +361,23 @@ class HomePage(QWidget):
             subtitle_file=it.subtitle_file, chunk_seconds=s.chunk_seconds, glossary_path=s.glossary_path,
             context_merge=s.context_merge, write_txt=s.write_txt, write_source_srt=s.write_source_srt,
             keep_temp=s.keep_temp, max_chars=s.max_chars_per_line, max_lines=s.max_lines,
-            min_cue_seconds=s.min_cue_seconds, bom=s.utf8_bom, rtl_marks=s.rtl_marks)
+            min_cue_seconds=s.min_cue_seconds, bom=s.utf8_bom, rtl_marks=s.rtl_marks, translator_tag=engine_tag(s),
+            speech_sensitivity=s.speech_sensitivity, mixed_languages=s.mixed_languages,
+            range_start=it.range_start, range_end=it.range_end)
 
     def preflight(self, it):
         s = self.ctx.settings
+        err = self.range_error(it, it.range_start, it.range_end)
+        if err:
+            return err
         if it.source_mode == "asr" and not s.asr_model_id:
             return self.ctx.t("no_asr_model")
         if it.source_mode == "file" and not it.subtitle_file:
             return self.ctx.t("mode_file") + ": " + self.ctx.t("choose_file")
-        if not any(True for _ in self.ctx.models.list("mt")):
+        if s.mt_engine == "llm":
+            if not s.llm_model:
+                return self.ctx.t("no_llm_model")
+        elif not any(True for _ in self.ctx.models.list("mt")):
             return self.ctx.t("no_mt_model")
         return ""
 

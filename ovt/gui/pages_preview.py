@@ -5,9 +5,11 @@ import os
 from pathlib import Path
 from typing import List
 
-from PySide6.QtCore import QUrl, Qt
-from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider,
+import re
+
+from PySide6.QtCore import QRectF, QUrl, Qt
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QImage, QPainter
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QPushButton, QSlider,
                                QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QMessageBox)
 
 from .. import subtitles as sub
@@ -15,13 +17,76 @@ from ..errors import OVTError
 from ..preview_logic import clock, cue_index_at, neighbour_start
 
 try:
-    from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-    from PySide6.QtMultimediaWidgets import QVideoWidget
+    from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
     HAVE_MM = True
 except Exception:                      # addon missing: the page still works as a subtitle viewer
     HAVE_MM = False
 
 SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+_ARABIC = re.compile(r"[\u0600-\u06ff]")
+
+
+class VideoCanvas(QWidget):
+    """Draws the current video frame and the subtitle ON the picture (what a viewer would see).
+    Frames come from QVideoSink, so no native video window is involved and the overlay is a normal paint."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(420, 240)
+        self.frame = None            # QImage
+        self.text = ""
+        self.src = ""
+        self.message = ""
+        self.setAttribute(Qt.WA_OpaquePaintEvent)
+
+    def set_frame(self, img: QImage):
+        self.frame = img
+        self.update()
+
+    def set_subtitle(self, text: str, src: str = ""):
+        if text != self.text or src != self.src:
+            self.text, self.src = text, src
+            self.update()
+
+    def video_rect(self) -> QRectF:
+        r = QRectF(self.rect())
+        if self.frame is None or self.frame.isNull():
+            return r
+        scale = min(r.width() / self.frame.width(), r.height() / self.frame.height())
+        w, h = self.frame.width() * scale, self.frame.height() * scale
+        return QRectF(r.x() + (r.width() - w) / 2, r.y() + (r.height() - h) / 2, w, h)
+
+    def _block(self, p: QPainter, vr: QRectF, text: str, px: int, bottom: float, color: QColor, bold: bool):
+        font = QFont(self.font()); font.setPixelSize(px); font.setBold(bold)
+        p.setFont(font)
+        p.setLayoutDirection(Qt.RightToLeft if _ARABIC.search(text) else Qt.LeftToRight)
+        flags = int(Qt.AlignCenter | Qt.TextWordWrap)
+        tr = p.boundingRect(QRectF(0, 0, vr.width() * 0.88, 1000), flags, text)
+        box = QRectF(vr.center().x() - tr.width() / 2 - 12, bottom - tr.height() - 12, tr.width() + 24, tr.height() + 12)
+        p.setPen(Qt.NoPen); p.setBrush(QColor(0, 0, 0, 175))
+        p.drawRoundedRect(box, 8, 8)
+        p.setPen(color)
+        p.drawText(QRectF(box.x() + 12, box.y() + 6, tr.width(), tr.height()), flags, text)
+        return box.top()
+
+    def paintEvent(self, ev):
+        p = QPainter(self)
+        p.fillRect(self.rect(), Qt.black)
+        vr = self.video_rect()
+        if self.frame is not None and not self.frame.isNull():
+            p.setRenderHint(QPainter.SmoothPixmapTransform)
+            p.drawImage(vr, self.frame)
+        elif self.message:
+            p.setPen(QColor("#aaaaaa")); p.drawText(vr, int(Qt.AlignCenter | Qt.TextWordWrap), self.message)
+        p.setRenderHint(QPainter.TextAntialiasing)
+        bottom = vr.bottom() - vr.height() * 0.05
+        if self.text:
+            top = self._block(p, vr, self.text, max(14, int(vr.height() * 0.06)), bottom, QColor("#ffffff"), True)
+            if self.src:
+                self._block(p, vr, self.src, max(11, int(vr.height() * 0.04)), top - 6, QColor("#cfd6dd"), False)
+        elif self.src:
+            self._block(p, vr, self.src, max(11, int(vr.height() * 0.04)), bottom, QColor("#cfd6dd"), False)
+        p.end()
 
 
 class PreviewPage(QWidget):
@@ -50,20 +115,24 @@ class PreviewPage(QWidget):
 
         body = QHBoxLayout()
         left = QVBoxLayout()
+        self.canvas = VideoCanvas()
+        left.addWidget(self.canvas, 1)
         if HAVE_MM:
-            self.video = QVideoWidget(); self.video.setMinimumSize(420, 240)
             self.player = QMediaPlayer(self)
+            self.sink = QVideoSink(self)
+            self.sink.videoFrameChanged.connect(self.on_frame)
+            self.player.setVideoSink(self.sink)
             # Audio can be switched off (OVT_PREVIEW_AUDIO=0): on machines with a broken audio stack Qt can crash
             # while enumerating devices, which would take the whole program down.
             self.audio = QAudioOutput(self) if os.environ.get("OVT_PREVIEW_AUDIO", "1") != "0" else None
             if self.audio is not None:
                 self.player.setAudioOutput(self.audio)
-            self.player.setVideoOutput(self.video)
-            left.addWidget(self.video, 1)
         else:
             self.player = self.audio = None
-            msg = QLabel(t("pv_no_mm")); msg.setWordWrap(True); msg.setAlignment(Qt.AlignCenter)
-            left.addWidget(msg, 1)
+            self.canvas.message = t("pv_no_mm")
+        self.cb_src_overlay = QCheckBox(t("pv_show_src")); self.cb_src_overlay.setChecked(False)
+        self.cb_src_overlay.toggled.connect(lambda _: self.show_cue(self.cur))
+        left.addWidget(self.cb_src_overlay)
         self.lbl_tr = QLabel(""); self.lbl_tr.setWordWrap(True); self.lbl_tr.setAlignment(Qt.AlignCenter)
         self.lbl_tr.setMinimumHeight(70)
         self.lbl_tr.setStyleSheet("background:#000; color:#fff; font-size:20px; font-weight:bold; padding:8px; border-radius:6px;")
@@ -219,12 +288,19 @@ class PreviewPage(QWidget):
         if idx != self.cur:
             self.show_cue(idx)
 
+    def on_frame(self, frame):
+        img = frame.toImage()
+        if not img.isNull():
+            self.canvas.set_frame(img)
+
     def show_cue(self, idx):
         self.cur = idx
         if idx is None:
             self.lbl_tr.setText(""); self.lbl_src.setText("")
+            self.canvas.set_subtitle("", "")
             return
         c = self.cues[idx]
+        self.canvas.set_subtitle(c.text.replace("\n", " "), c.source_text.replace("\n", " ") if self.cb_src_overlay.isChecked() else "")
         self.lbl_tr.setText(c.text.replace("\n", " "))
         self.lbl_src.setText(c.source_text.replace("\n", " "))
         self._syncing_table = True

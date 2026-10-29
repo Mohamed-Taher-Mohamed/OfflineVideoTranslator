@@ -21,6 +21,8 @@ class QueueItem:
     result: Any = None
     error: str = ""
     detected_lang: str = ""
+    range_start: float = 0.0       # translate only this part (seconds, absolute); 0/0 = whole file
+    range_end: float = 0.0
 
 
 class Ctx:

@@ -187,19 +187,21 @@ class FFmpeg:
         return out
 
     def plan_chunks(self, path, audio_index: int, duration: float, chunk_s: float, snap: bool = True,
-                    window: float = 20.0):
+                    window: float = 20.0, start: float = 0.0, end: Optional[float] = None):
         """[(start, end)] covering the file. Boundaries move to the middle of the longest silence within
         +-window seconds of the nominal cut, so sentences are rarely cut in half. Falls back to fixed cuts."""
-        if duration <= 0:
-            return [(0.0, float(chunk_s))]
-        bounds = [0.0]
+        if end is None or end <= 0:
+            end = duration
+        if end <= 0:
+            return [(float(start), float(start) + float(chunk_s))]
+        bounds = [float(start)]
         while True:
             nominal = bounds[-1] + chunk_s
-            if nominal >= duration - 1.0:
+            if nominal >= end - 1.0:
                 break
             cut = nominal
             if snap:
-                lo, hi = max(nominal - window, bounds[-1] + 0.3 * chunk_s), min(nominal + window, duration - 1.0)
+                lo, hi = max(nominal - window, bounds[-1] + 0.3 * chunk_s), min(nominal + window, end - 1.0)
                 if hi > lo:
                     try:
                         gaps = [(a, b) for a, b in self.find_silences(path, audio_index, lo, hi - lo)
@@ -210,7 +212,7 @@ class FFmpeg:
                         a, b = max(gaps, key=lambda g: g[1] - g[0])
                         cut = (a + b) / 2.0
             bounds.append(cut)
-        bounds.append(duration)
+        bounds.append(float(end))
         return list(zip(bounds[:-1], bounds[1:]))
 
     def mean_volume_db(self, wav) -> Optional[float]:

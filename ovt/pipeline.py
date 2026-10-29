@@ -25,7 +25,7 @@ from .fsutil import atomic_write_json, atomic_write_text, ensure_free_space, rea
 from .glossary import Glossary
 from .media import FFmpeg, MediaInfo, iso3_to_1
 from . import subtitles as sub
-from .preview_logic import clock, tail_lines
+from .preview_logic import clock, range_tag, tail_lines
 from .translate.service import translate_cues
 
 
@@ -54,6 +54,11 @@ class JobOptions:
     min_cue_seconds: float = 0.8
     bom: bool = False
     rtl_marks: bool = False
+    translator_tag: str = ""           # which translation engine/model (part of the cache fingerprint)
+    speech_sensitivity: str = "normal"
+    mixed_languages: bool = False
+    range_start: float = 0.0           # process only [range_start, range_end] seconds (0 / 0 = whole file); times stay absolute
+    range_end: float = 0.0
     snap_to_silence: bool = True       # move chunk borders to pauses so sentences are not cut (kept LAST: positional-arg safe)
 
 
@@ -148,7 +153,7 @@ class Pipeline:
             asr_fp = self._asr_fp(o)
         else:
             cues, lang = self._stage_existing_subs(o, info, jdir)
-            asr_fp = _fp("existing", o.source_mode, o.subtitle_track, o.subtitle_file)
+            asr_fp = _fp("existing", o.source_mode, o.subtitle_track, o.subtitle_file, o.range_start, o.range_end)
         res.source_language = lang
 
         if not cues:
@@ -170,7 +175,8 @@ class Pipeline:
     # ---- ASR ----
     def _asr_fp(self, o: JobOptions) -> str:
         return _fp("asr", self._model_fp("asr", o.asr_model_id), o.audio_track, o.chunk_seconds, o.source_lang,
-                   o.snap_to_silence, "plan-v2")
+                   o.snap_to_silence, "plan-v2", o.speech_sensitivity, o.mixed_languages,
+                   round(o.range_start, 2), round(o.range_end, 2))
 
     def _stage_asr(self, o, info: MediaInfo, jdir: Path, res: JobResult):
         fp = self._asr_fp(o)
@@ -179,7 +185,7 @@ class Pipeline:
         res.chunks_total = n
         ensure_free_space(self.paths.temp, int(o.chunk_seconds * 32000 * 2) + 50 * 2**20, "temporary audio")
         backend = None
-        lang = o.source_lang or None
+        dominant = None                                    # language of the first chunk that had speech
         segments: List[Segment] = []
         t_asr0 = time.time()
         try:
@@ -191,8 +197,8 @@ class Pipeline:
                 if (saved and saved.get("fingerprint") == fp and abs(saved.get("chunk_start", -1) - start) < 1e-3
                         and abs(saved.get("chunk_end", -1) - end) < 1e-3):
                     res.chunks_resumed += 1
-                    if saved["segments"] and not lang:
-                        lang = saved["language"]
+                    if saved["segments"] and not dominant:
+                        dominant = saved["language"]
                     segments += [Segment(**s) for s in saved["segments"]]
                     self._emit("asr", 0.7 * (k + 1) / n, "Resumed chunk %d/%d" % (k + 1, n), k + 1, n)
                     continue
@@ -216,7 +222,9 @@ class Pipeline:
                         self._emit("asr", 0.7 * (k + 0.05 + 0.9 * inside) / n, "Recognising speech %d/%d" % (k + 1, n),
                                    k + 1, n, detail="[%s] %s" % (clock(start + seg.start), seg.text),
                                    speed=min(max(seg.end, 0.0), dur) / wall)
-                    clang, prob, segs = backend.transcribe(wav, lang, on_segment=on_seg)
+                    # one language for the whole file (consistent), unless the video mixes languages: then decide per window
+                    force = None if o.mixed_languages else (o.source_lang or dominant or None)
+                    clang, prob, segs = backend.transcribe(wav, force, on_segment=on_seg)
                 finally:
                     if not o.keep_temp and wav.exists():
                         wav.unlink()
@@ -224,8 +232,8 @@ class Pipeline:
                     s.start += start
                     s.end += start
                 segs = dedupe_repeats(segs)
-                if segs and not lang:
-                    lang = clang
+                if segs and not dominant:
+                    dominant = clang
                 atomic_write_json(cf, {"fingerprint": fp, "language": clang, "language_prob": prob,
                                        "chunk_start": start, "chunk_end": end, "segments": [s.to_dict() for s in segs]})
                 segments += segs
@@ -235,7 +243,20 @@ class Pipeline:
             if backend is not None:
                 backend.close()
         segments.sort(key=lambda s: s.start)
-        return segments, (lang or "")
+        return segments, (o.source_lang or dominant or "")
+
+    @staticmethod
+    def _range(o, info):
+        """Validated (start, end) in seconds. end == duration when no end was given."""
+        t0 = max(0.0, float(o.range_start or 0.0))
+        t1 = float(o.range_end or 0.0)
+        if info.duration > 0:
+            if t0 >= info.duration - 0.5:
+                raise OVTError("The start time (%s) is at or after the end of the video (%s)." % (clock(t0), clock(info.duration)))
+            t1 = min(t1, info.duration) if t1 > 0 else info.duration
+        if t1 > 0 and t1 <= t0 + 1.0:
+            raise OVTError("The end time must be later than the start time.")
+        return t0, t1
 
     def _plan(self, o, info, jdir: Path, fp: str):
         """Chunk plan is computed once and stored, so a resumed job uses exactly the same borders."""
@@ -244,7 +265,9 @@ class Pipeline:
         if saved and saved.get("fingerprint") == fp:
             return [tuple(x) for x in saved["plan"]]
         self._emit("asr", 0.0, "Planning chunks")
-        plan = self.ff.plan_chunks(o.input_path, o.audio_track, info.duration, o.chunk_seconds, o.snap_to_silence)
+        t0, t1 = self._range(o, info)
+        plan = self.ff.plan_chunks(o.input_path, o.audio_track, info.duration, o.chunk_seconds, o.snap_to_silence,
+                                   start=t0, end=t1)
         atomic_write_json(pf, {"fingerprint": fp, "plan": plan})
         return plan
 
@@ -261,6 +284,9 @@ class Pipeline:
         else:
             f, lang = Path(o.subtitle_file), o.source_lang
         cues = sub.load_subtitles(f)
+        t0, t1 = float(o.range_start or 0.0), float(o.range_end or 0.0)
+        if t0 > 0 or t1 > 0:                                   # translate only the requested part of existing subtitles
+            cues = [c for c in cues if c.end > t0 and (t1 <= 0 or c.start < t1)]
         for c in cues:
             c.source_text, c.text = c.text, ""
         return cues, lang
@@ -268,23 +294,33 @@ class Pipeline:
     # ---- translation ----
     def _stage_translate(self, o, cues, lang, glossary, jdir, asr_fp, res):
         tgt = o.target_lang
-        if not lang:
+        mixed = o.mixed_languages
+        if not lang and not mixed:
             raise UnsupportedLanguageError("Source language could not be determined. Pass --src-lang.")
-        if lang == tgt:
+        if lang == tgt and not mixed:
             for c in cues:
                 c.text = c.source_text
             res.warnings.append("Source language equals target language: text copied without translation.")
             return
         translator = self.translator_factory()
         try:
-            sup = translator.supports(lang, tgt)
+            src = lang
+            if mixed:
+                if getattr(translator, "handles_mixed", False):
+                    src = "mixed"
+                else:
+                    res.warnings.append("Mixed languages: this translation engine treats every line as '%s'. Use the AI (LLM) "
+                                        "engine for videos with several spoken languages." % (lang or "?"))
+                    if not lang:
+                        raise UnsupportedLanguageError("Source language could not be determined. Pass --src-lang.")
+            sup = translator.supports(src, tgt)
             if not sup.ok:
                 raise UnsupportedLanguageError(
                     "Cannot translate '%s' -> '%s': %s. Import a suitable translation model; no fake translation is produced."
-                    % (lang, tgt, sup.reason), src=lang, tgt=tgt)
+                    % (src, tgt, sup.reason), src=src, tgt=tgt)
             if "pivot" in sup.route:
                 res.warnings.append("Translation goes %s: quality is lower than a direct model." % sup.route)
-            tfp = _fp("mt", asr_fp, self._model_fp("mt", o.mt_model_id), glossary.fingerprint(), lang, tgt, o.context_merge, len(cues))
+            tfp = _fp("mt", asr_fp, self._model_fp("mt", o.mt_model_id), glossary.fingerprint(), src, tgt, o.context_merge, len(cues), o.translator_tag)
             tf = jdir / "translation.json"
             saved = read_json(tf)
             cache = saved["cache"] if saved and saved.get("fingerprint") == tfp else {}
@@ -301,7 +337,7 @@ class Pipeline:
                 sample.clear()
 
             self._emit("translate", 0.7, "Translating")
-            res.warnings += translate_cues(translator, cues, lang, tgt, glossary, o.context_merge,
+            res.warnings += translate_cues(translator, cues, src, tgt, glossary, o.context_merge,
                                            cache=cache, on_batch=on_batch, on_unit=on_unit, check_cancel=self._check_cancel)
             atomic_write_json(tf, {"fingerprint": tfp, "cache": cache})
         finally:
@@ -309,7 +345,7 @@ class Pipeline:
 
     # ---- output ----
     def _target(self, out_dir: Path, src_path: Path, suffix: str, o) -> Path:
-        p = out_dir / (src_path.stem + suffix)
+        p = out_dir / (src_path.stem + range_tag(o.range_start, o.range_end) + suffix)
         if p.resolve() == src_path.resolve():
             raise OVTError("Refusing to overwrite the original file")
         return p if o.overwrite else unique_path(p)
@@ -333,7 +369,7 @@ class Pipeline:
             res.outputs["source_srt"] = str(p)
         proj = self._target(out_dir, src_path, ".ovtproject.json", o)
         atomic_write_json(proj, {"ovt_version": __version__, "source_file": src_path.name,
-                                 "source_path": str(src_path.resolve()), "source_language": res.source_language, "target_language": o.target_lang,
+                                 "source_path": str(src_path.resolve()), "range": [o.range_start, o.range_end], "source_language": res.source_language, "target_language": o.target_lang,
                                  "options": asdict(o), "warnings": res.warnings,
                                  "cues": [c.to_dict() for c in cues]})
         res.outputs["project"] = str(proj)

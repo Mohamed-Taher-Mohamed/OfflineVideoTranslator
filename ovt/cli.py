@@ -11,6 +11,8 @@ from .errors import OVTError
 from .media import FFmpeg
 from .models import ASR_CATALOG, ModelManager
 from .pipeline import JobOptions, Pipeline
+from .preview_logic import parse_clock
+from .translate.llm_backend import engine_tag
 
 
 def _p(args) -> Paths:
@@ -24,9 +26,13 @@ def build_pipeline(paths, settings, opts: JobOptions, progress=None, cancel=None
     def asr_factory():
         from .asr.faster_whisper_backend import FasterWhisperBackend
         m = mm.require("asr", opts.asr_model_id)
-        return FasterWhisperBackend(m["path"], settings.device, settings.compute_type, beam_size=settings.beam_size)
+        return FasterWhisperBackend(m["path"], settings.device, settings.compute_type, beam_size=settings.beam_size,
+                                     sensitivity=settings.speech_sensitivity, multilingual=settings.mixed_languages)
 
     def mt_factory():
+        if settings.mt_engine == "llm":
+            from .translate.llm_backend import LLMTranslator
+            return LLMTranslator(settings.llm_base_url, settings.llm_model, settings.llm_api_key, settings.llm_cloud_ok)
         from .translate.ct2_backend import CT2Translator
         pk = []
         for m in mm.list("mt"):
@@ -84,6 +90,8 @@ def main(argv=None) -> int:
     s.add_argument("--subs-file", default="")
     s.add_argument("--glossary", default=""); s.add_argument("--txt", action="store_true")
     s.add_argument("--source-srt", action="store_true"); s.add_argument("--chunk-seconds", type=int, default=300)
+    s.add_argument("--from", dest="t_from", default="", help="start time, e.g. 9:15 or 1:02:03")
+    s.add_argument("--to", dest="t_to", default="", help="end time, e.g. 12:15")
     s.add_argument("--overwrite", action="store_true"); s.add_argument("--keep-temp", action="store_true")
     m = sp.add_parser("models"); ms = m.add_subparsers(dest="mcmd", required=True)
     ms.add_parser("list")
@@ -150,7 +158,9 @@ def main(argv=None) -> int:
                 write_txt=a.txt or settings.write_txt, write_source_srt=a.source_srt or settings.write_source_srt,
                 keep_temp=a.keep_temp, overwrite=a.overwrite, max_chars=settings.max_chars_per_line,
                 max_lines=settings.max_lines, min_cue_seconds=settings.min_cue_seconds, bom=settings.utf8_bom,
-                rtl_marks=settings.rtl_marks)
+                rtl_marks=settings.rtl_marks, translator_tag=engine_tag(settings),
+                speech_sensitivity=settings.speech_sensitivity, mixed_languages=settings.mixed_languages,
+                range_start=parse_clock(a.t_from), range_end=parse_clock(a.t_to))
             cancel = threading.Event()
             last = [""]
 
