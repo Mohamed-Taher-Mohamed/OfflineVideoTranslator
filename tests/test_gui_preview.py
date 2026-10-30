@@ -94,16 +94,23 @@ def test_without_multimedia_the_page_still_loads(win, media, monkeypatch):
     assert pv.lbl_tr.text() == "Second line here."
 
 
-def _white(img, band):
-    """Count near-white pixels inside a horizontal band (fractions of the height) of a grabbed image."""
-    h, w = img.height(), img.width()
+def _changed(a, b, band, thr=60):
+    """Pixels inside a horizontal band (fractions of the height) that differ between two grabbed images.
+    Comparing 'with subtitle' against 'without' is font-independent (Windows draws thinner text than Linux)."""
+    h, w = a.height(), a.width()
     n = 0
     for y in range(int(h * band[0]), int(h * band[1]), 2):
         for x in range(0, w, 2):
-            c = img.pixelColor(x, y)
-            if c.red() > 230 and c.green() > 230 and c.blue() > 230:
+            ca, cb = a.pixelColor(x, y), b.pixelColor(x, y)
+            if abs(ca.red() - cb.red()) + abs(ca.green() - cb.green()) + abs(ca.blue() - cb.blue()) > thr:
                 n += 1
     return n
+
+
+def _bright(img, band):
+    h, w = img.height(), img.width()
+    return sum(1 for y in range(int(h * band[0]), int(h * band[1]), 2) for x in range(0, w, 2)
+               if min(img.pixelColor(x, y).red(), img.pixelColor(x, y).green(), img.pixelColor(x, y).blue()) > 200)
 
 
 def test_subtitle_is_painted_on_the_picture_itself(qapp):
@@ -113,13 +120,14 @@ def test_subtitle_is_painted_on_the_picture_itself(qapp):
     frame = QImage(1280, 720, QImage.Format_RGB32); frame.fill(QColor(20, 60, 200))
     cv.set_frame(frame)
     blank = cv.grab().toImage()
-    assert blank.pixelColor(320, 120).blue() > 150 and _white(blank, (0.80, 0.97)) == 0       # frame drawn, no subtitle yet
+    assert blank.pixelColor(320, 120).blue() > 150                                            # the frame itself is drawn
     cv.set_subtitle("مرحبا بالعالم، هذا اختبار للترجمة")
     with_sub = cv.grab().toImage()
-    assert _white(with_sub, (0.80, 0.97)) > 40                                                # white text in the lower part
-    assert _white(with_sub, (0.0, 0.5)) == 0                                                  # nothing on the top half
+    assert _changed(with_sub, blank, (0.78, 0.97)) > 300                                      # box + text over the lower part
+    assert _bright(with_sub, (0.78, 0.97)) >= 8                                               # some bright text pixels
+    assert _changed(with_sub, blank, (0.0, 0.5)) == 0                                         # nothing on the top half
     cv.set_subtitle("")
-    assert _white(cv.grab().toImage(), (0.80, 0.97)) == 0                                    # cleared again
+    assert _changed(cv.grab().toImage(), blank, (0.0, 1.0)) == 0                              # cleared -> identical again
     # 4:3 picture inside a wide widget keeps its aspect ratio (black bars left and right)
     sq = QImage(400, 300, QImage.Format_RGB32); sq.fill(QColor(200, 30, 30)); cv.resize(800, 300); cv.set_frame(sq)
     vr = cv.video_rect()
@@ -154,6 +162,10 @@ def test_real_decoded_frames_reach_the_overlay_canvas(win, media):
     assert wait_for(lambda: pv.canvas.frame is not None and pv.player.position() > 800, timeout=20)
     assert (pv.canvas.frame.width(), pv.canvas.frame.height()) == (160, 120)                 # the real decoded frame size
     assert pv.canvas.text == "ترجمة فوق الفيديو"
-    img = pv.canvas.grab().toImage()
-    assert _white(img, (0.6, 1.0)) > 20                                                       # text painted over real video
+    pv.player.pause()
+    wait_for(lambda: False, timeout=0.5)                                                      # let the last frame settle
+    with_text = pv.canvas.grab().toImage()
+    pv.canvas.set_subtitle("", "")
+    without = pv.canvas.grab().toImage()
+    assert _changed(with_text, without, (0.55, 1.0)) > 150                                    # text painted over real video
     pv.player.stop()

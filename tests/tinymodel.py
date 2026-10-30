@@ -13,11 +13,23 @@ CORPUS = ("hello world this is a test of the small model . how are you today ? f
 
 
 def train_spm(dirpath: Path, extra=("eng_Latn", "arb_Arab"), vocab=60) -> Path:
+    """SentencePiece's C++ trainer cannot open non-ASCII paths on Windows, so train in an ASCII temp folder
+    and copy the finished model into `dirpath` (which may contain Arabic letters)."""
+    import shutil
+    import tempfile
     import sentencepiece as spm
-    txt = dirpath / "corpus.txt"
-    txt.write_text(CORPUS.replace(" . ", ".\n"), encoding="utf-8")
-    spm.SentencePieceTrainer.train(input=str(txt), model_prefix=str(dirpath / "sentencepiece"), vocab_size=vocab,
-                                   user_defined_symbols=list(extra), hard_vocab_limit=False, minloglevel=2)
+    dirpath = Path(dirpath)
+    dirpath.mkdir(parents=True, exist_ok=True)
+    work = Path(tempfile.mkdtemp(prefix="spm_"))
+    try:
+        txt = work / "corpus.txt"
+        txt.write_text(CORPUS.replace(" . ", ".\n"), encoding="utf-8")
+        spm.SentencePieceTrainer.train(input=str(txt), model_prefix=str(work / "sentencepiece"), vocab_size=vocab,
+                                       user_defined_symbols=list(extra), hard_vocab_limit=False, minloglevel=2)
+        shutil.copy(work / "sentencepiece.model", dirpath / "sentencepiece.model")
+        shutil.copy(work / "sentencepiece.vocab", dirpath / "sentencepiece.vocab")
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
     return dirpath / "sentencepiece.model"
 
 
@@ -36,7 +48,7 @@ def _set(spec, path, arr):
 def build_ct2(model_dir: Path, spm_model: Path, d=16, ffn=32, seed=0):
     import sentencepiece as spm
     from ctranslate2.specs import TransformerSpec
-    sp = spm.SentencePieceProcessor(model_file=str(spm_model))
+    sp = spm.SentencePieceProcessor(model_proto=Path(spm_model).read_bytes())
     vocab = [sp.id_to_piece(i) for i in range(sp.get_piece_size())]
     V = len(vocab)
     rng = np.random.default_rng(seed)
