@@ -71,12 +71,14 @@ def _restore_network():
 class FakeASR(ASRBackend):
     name = "FAKE"
     calls = 0
+    languages = []                      # the `language` argument of every transcribe() call
 
     def __init__(self, lang="en", speech=True):
         self.lang, self.speech = lang, speech
 
     def transcribe(self, wav, language=None, on_segment=None):
         FakeASR.calls += 1
+        FakeASR.languages.append(language)
         if not self.speech:
             return self.lang, 0.5, []
         # one segment at 1.0-2.5 s of every window, text carries a counter so order is checkable

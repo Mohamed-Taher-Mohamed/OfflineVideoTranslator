@@ -62,7 +62,9 @@ class _Runner:
         if compute_type == "auto":
             compute_type = "int8" if device in ("auto", "cpu") else "default"
         self.ct = ctranslate2.Translator(str(model_dir), device=device, compute_type=compute_type, intra_threads=threads)
-        self.sp = spm.SentencePieceProcessor(model_file=str(spm_file))
+        # Read the file in Python and hand SentencePiece the bytes: its C++ code opens `model_file` with the ANSI
+        # code page on Windows, which fails ("No such file ... Error #2") when the path has Arabic letters.
+        self.sp = spm.SentencePieceProcessor(model_proto=Path(spm_file).read_bytes())
 
     @staticmethod
     def decode_limit(token_lists) -> int:

@@ -8,6 +8,10 @@ runs:
         python-version: "3.12"
         cache: pip
 
+    - name: Check that every project file was uploaded
+      shell: pwsh
+      run: python ci/check_files.py
+
     - name: Download ffmpeg (LGPL build; no x264/libass in it - the program does not need them)
       shell: pwsh
       run: |

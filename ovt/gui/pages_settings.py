@@ -3,6 +3,8 @@ from PySide6.QtWidgets import (QDialog, QTableWidget, QTableWidgetItem, QCheckBo
                                QLineEdit, QMessageBox, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
 from .. import netguard
+from ..translate.llm_backend import LLMTranslator, PRESETS, is_loopback_url
+from .workers import FuncThread
 import json
 from pathlib import Path
 
@@ -98,6 +100,32 @@ class SettingsPage(QWidget):
         f.addRow(self.cb_offline); f.addRow(t("set_ui_lang"), self.cb_ui); f.addRow(t("set_theme"), self.cb_theme)
         lay.addWidget(g)
 
+        g = QGroupBox(t("grp_engine")); f = QFormLayout(g)
+        self.cb_engine = QComboBox(); self.cb_engine.addItem(t("eng_nmt"), "nmt"); self.cb_engine.addItem(t("eng_llm"), "llm")
+        self.cb_engine.setCurrentIndex(self.cb_engine.findData(s.mt_engine))
+        self.cb_preset = QComboBox()
+        for k, (label, url) in PRESETS.items():
+            self.cb_preset.addItem(label, k)
+        self.ed_llm_url = QLineEdit(s.llm_base_url)
+        self.cb_llm_model = QComboBox(); self.cb_llm_model.setEditable(True); self.cb_llm_model.setCurrentText(s.llm_model)
+        self.b_llm_refresh = QPushButton(t("llm_refresh"))
+        hm = QHBoxLayout(); hm.addWidget(self.cb_llm_model, 1); hm.addWidget(self.b_llm_refresh)
+        self.ed_llm_key = QLineEdit(s.llm_api_key); self.ed_llm_key.setEchoMode(QLineEdit.Password)
+        self.cb_cloud = QCheckBox(t("llm_cloud")); self.cb_cloud.setChecked(s.llm_cloud_ok)
+        self.b_llm_test = QPushButton(t("llm_test"))
+        self.lbl_llm = QLabel(t("llm_hint")); self.lbl_llm.setObjectName("hint"); self.lbl_llm.setWordWrap(True)
+        f.addRow(t("set_mt"), self.cb_engine); f.addRow(t("llm_preset"), self.cb_preset); f.addRow(t("llm_url"), self.ed_llm_url)
+        f.addRow(t("llm_model"), hm); f.addRow(t("llm_key"), self.ed_llm_key); f.addRow(self.cb_cloud)
+        f.addRow(self.b_llm_test); f.addRow(self.lbl_llm)
+        self.cb_preset.currentIndexChanged.connect(self.on_preset)
+        self.cb_engine.currentIndexChanged.connect(self.update_llm_enabled)
+        self.ed_llm_url.textChanged.connect(self.update_llm_enabled)
+        self.b_llm_refresh.clicked.connect(self.refresh_llm_models)
+        self.b_llm_test.clicked.connect(self.test_llm)
+        self.llm_job = None
+        self.update_llm_enabled()
+        lay.addWidget(g)
+
         g = QGroupBox(t("grp_models")); f = QFormLayout(g)
         self.cb_asr, self.cb_mt = QComboBox(), QComboBox()
         self.fill_models()
@@ -135,11 +163,14 @@ class SettingsPage(QWidget):
             self.cb_dev.addItem(d, d)
         self.cb_dev.setCurrentIndex(self.cb_dev.findData(s.device))
         self.cb_keep = QCheckBox(t("set_keep_tmp")); self.cb_keep.setChecked(s.keep_temp)
+        self.cb_sens = QComboBox(); self.cb_sens.addItem(t("sens_normal"), "normal"); self.cb_sens.addItem(t("sens_high"), "high")
+        self.cb_sens.setCurrentIndex(max(0, self.cb_sens.findData(s.speech_sensitivity)))
+        self.cb_mixed = QCheckBox(t("set_mixed")); self.cb_mixed.setChecked(s.mixed_languages)
         self.cb_beam = QComboBox()
         for v in (1, 3, 5):
             self.cb_beam.addItem(t("beam_%d" % v), v)
         self.cb_beam.setCurrentIndex(max(0, self.cb_beam.findData(s.beam_size)))
-        f.addRow(t("set_beam"), self.cb_beam); f.addRow(t("set_chunk"), self.sp_chunk); f.addRow(t("set_device"), self.cb_dev); f.addRow(self.cb_keep)
+        f.addRow(t("set_beam"), self.cb_beam); f.addRow(t("set_sens"), self.cb_sens); f.addRow(self.cb_mixed); f.addRow(t("set_chunk"), self.sp_chunk); f.addRow(t("set_device"), self.cb_dev); f.addRow(self.cb_keep)
         lay.addWidget(g)
 
         row = QHBoxLayout()
@@ -153,6 +184,46 @@ class SettingsPage(QWidget):
         outer.addWidget(sc)
         self.b_save.clicked.connect(self.save)
         self.b_reset.clicked.connect(self.reset)
+
+    # ---- LLM engine helpers ----
+    def on_preset(self):
+        url = PRESETS[self.cb_preset.currentData()][1]
+        if url:
+            self.ed_llm_url.setText(url)
+
+    def update_llm_enabled(self):
+        on = self.cb_engine.currentData() == "llm"
+        cloud = not is_loopback_url(self.ed_llm_url.text().strip() or "http://127.0.0.1")
+        for w in (self.cb_preset, self.ed_llm_url, self.cb_llm_model, self.b_llm_refresh, self.b_llm_test):
+            w.setEnabled(on)
+        self.ed_llm_key.setEnabled(on and cloud)
+        self.cb_cloud.setEnabled(on and cloud)
+
+    def make_llm(self) -> LLMTranslator:
+        return LLMTranslator(self.ed_llm_url.text().strip(), self.cb_llm_model.currentText().strip(),
+                             self.ed_llm_key.text().strip(), self.cb_cloud.isChecked(), timeout=300)
+
+    def _run_llm(self, fn, ok):
+        if self.llm_job:
+            return
+        self.msg.setText(self.ctx.t("llm_testing"))
+        self.llm_job = FuncThread(fn)
+        self.llm_job.ok.connect(lambda r: (setattr(self, "llm_job", None), ok(r)))
+        self.llm_job.err.connect(lambda code, m: (setattr(self, "llm_job", None), self.msg.setText(m)))
+        self.llm_job.start()
+
+    def refresh_llm_models(self):
+        llm = self.make_llm()
+
+        def done(models):
+            cur = self.cb_llm_model.currentText()
+            self.cb_llm_model.clear(); self.cb_llm_model.addItems(models); self.cb_llm_model.setCurrentText(cur or (models[0] if models else ""))
+            self.msg.setText(", ".join(models[:8]))
+        self._run_llm(llm.list_models, done)
+
+    def test_llm(self):
+        llm = self.make_llm()
+        self._run_llm(llm.check, lambda out: self.msg.setText("%s: %s" % (self.ctx.t("llm_ok"), out)))
 
     def fill_models(self):
         s, t = self.ctx.settings, self.ctx.t
@@ -199,6 +270,9 @@ class SettingsPage(QWidget):
         s.utf8_bom, s.rtl_marks = self.cb_bom.isChecked(), self.cb_rtl.isChecked()
         s.chunk_seconds, s.device, s.keep_temp = self.sp_chunk.value(), self.cb_dev.currentData(), self.cb_keep.isChecked()
         s.beam_size = self.cb_beam.currentData()
+        s.speech_sensitivity, s.mixed_languages = self.cb_sens.currentData(), self.cb_mixed.isChecked()
+        s.mt_engine, s.llm_base_url = self.cb_engine.currentData(), self.ed_llm_url.text().strip()
+        s.llm_model, s.llm_api_key, s.llm_cloud_ok = self.cb_llm_model.currentText().strip(), self.ed_llm_key.text().strip(), self.cb_cloud.isChecked()
         s.save(paths)
         if s.offline_mode:
             netguard.enable_offline(paths.logs / "network.log")

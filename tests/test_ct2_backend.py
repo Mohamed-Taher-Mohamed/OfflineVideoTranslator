@@ -81,3 +81,25 @@ def test_runaway_output_is_bounded(tmp_path):
     n_src = len(sp.encode("hello.", out_type=str))
     assert len(sp.encode(short, out_type=str)) <= 3 * n_src + 10 + 2
     assert t.argos[("en", "ar")].decode_limit([[1] * 500]) == 256
+
+
+def test_sentencepiece_model_loads_even_when_the_library_cannot_open_non_ascii_paths(tmp_path, monkeypatch):
+    """Real Windows failure: sentencepiece's C++ opens `model_file` with the ANSI code page, so a path containing
+    Arabic letters gave 'NOT_FOUND ... No such file or directory Error #2'. The engine must pass bytes instead."""
+    import sentencepiece
+    folder = tmp_path / "برنامج الترجمة" / "models"
+    folder.mkdir(parents=True)
+    pkg = make_argos_package(folder / "en_ar.argosmodel", tmp_path / "w1")      # built BEFORE the simulation is switched on
+    nllb_dir = make_nllb_dir(tmp_path / "نموذج عربي")
+
+    class WindowsLikeSP(sentencepiece.SentencePieceProcessor):
+        def __init__(self, *a, model_file=None, **k):
+            if model_file is not None:
+                raise OSError('NOT_FOUND: "%s": No such file or directory Error #2' % model_file)
+            super().__init__(*a, **k)
+    monkeypatch.setattr(sentencepiece, "SentencePieceProcessor", WindowsLikeSP)
+    t = CT2Translator([("argos", pkg)], folder / "mt-extracted")
+    assert not t.load_errors, t.load_errors
+    assert t.supports("en", "ar").ok and len(t.translate(["hello world."], "en", "ar")) == 1
+    nllb = CT2Translator([("nllb", nllb_dir)], folder / "ex2")
+    assert not nllb.load_errors, nllb.load_errors

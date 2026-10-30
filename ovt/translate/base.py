@@ -13,6 +13,7 @@ class Support:
 class Translator(ABC):
     name = "abstract"
     version = ""
+    handles_mixed = False       # True if it can translate lines whose source language differs from line to line
 
     @abstractmethod
     def supports(self, src: str, tgt: str) -> Support:
