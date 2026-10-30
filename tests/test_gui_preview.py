@@ -156,6 +156,7 @@ def test_page_overlay_follows_the_current_cue_and_optional_source_line(win, medi
 def test_real_decoded_frames_reach_the_overlay_canvas(win, media):
     pv = win.pages["nav_preview"]
     from ovt import subtitles as sub
+    from ovt.gui.pages_preview import VideoCanvas
     pv.set_cues([sub.Cue(0.0, 8.0, "ترجمة فوق الفيديو", source_text="subtitle on video")])
     pv.load_video(str(media["multi"]))
     pv.player.play()
@@ -163,12 +164,14 @@ def test_real_decoded_frames_reach_the_overlay_canvas(win, media):
     assert (pv.canvas.frame.width(), pv.canvas.frame.height()) == (160, 120)                 # the real decoded frame size
     assert pv.canvas.text == "ترجمة فوق الفيديو"
     pv.player.pause()
-    wait_for(lambda: False, timeout=0.5)                                                      # let the last frame settle
-    pv.canvas.resize(960, 540)                                                                # bigger canvas -> bigger glyphs
-    with_text = pv.canvas.grab().toImage()
-    pv.canvas.set_subtitle("", "")
-    without = pv.canvas.grab().toImage()
-    # The test video is BLACK, so the dark subtitle box changes nothing; only the glyph pixels differ, and how many
-    # depends on the platform font (Windows draws thinner text). Hence a modest, font-independent threshold.
-    assert _changed(with_text, without, (0.55, 1.0)) > 40                                     # text painted over real video
+    real_frame = pv.canvas.frame.copy()                                                       # a REAL decoded video frame
+    # Paint it on a STANDALONE canvas: a canvas inside the page is resized by its layout (the first CI run on Windows
+    # showed 493x252 although we asked for 960x540), which made the glyphs tiny and the pixel count platform-dependent.
+    big = VideoCanvas(); big.resize(960, 540); big.set_frame(real_frame)
+    without = big.grab().toImage()
+    big.set_subtitle(pv.canvas.text, "")
+    with_text = big.grab().toImage()
+    assert (with_text.width(), with_text.height()) == (960, 540)
+    # The test video is BLACK, so the dark subtitle box changes nothing; only glyph pixels differ (platform font).
+    assert _changed(with_text, without, (0.55, 1.0)) > 50                                     # text painted over real video
     pv.player.stop()
