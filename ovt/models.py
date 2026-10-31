@@ -149,6 +149,7 @@ class ModelManager:
             staging.rename(dest)
             if backup and backup.exists():
                 shutil.rmtree(backup)
+            self._clear_extracted(kind, model_id)                     # a re-import must not keep serving the old unzipped copy
             return self.get(kind, model_id)
         except BaseException:
             shutil.rmtree(staging, ignore_errors=True)
@@ -175,10 +176,15 @@ class ModelManager:
             raise ModelIntegrityError("Model '%s' is damaged (%s). Re-import it." % (model_id, "; ".join(problems)))
         return m
 
+    def _clear_extracted(self, kind, model_id) -> None:
+        if kind == "mt":                                           # unzipped cache of Argos packages
+            shutil.rmtree(self.paths.models / "mt-extracted" / model_id, ignore_errors=True)
+
     def delete(self, kind, model_id) -> None:
         d = self._dir(kind, model_id)
         if d.exists():
             shutil.rmtree(d)
+        self._clear_extracted(kind, model_id)
 
     def download_asr(self, key: str, allow_network: bool = False) -> Dict:
         """Explicit user action. Refuses while offline mode is on. NOT exercised in the dev sandbox."""

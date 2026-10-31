@@ -11,9 +11,17 @@ class Segment:
     text: str
     confidence: Optional[float] = None   # 0..1, from avg logprob when available
     no_speech_prob: Optional[float] = None
+    words: Optional[List[dict]] = None   # [{"s": start, "e": end, "w": text, "p": probability}] when word timestamps are on
 
     def to_dict(self):
         return asdict(self)
+
+    def shift(self, dt: float):
+        self.start += dt
+        self.end += dt
+        for w in self.words or []:
+            w["s"] += dt
+            w["e"] += dt
 
 
 class ASRBackend(ABC):

@@ -27,7 +27,7 @@ def collapse_loops(text: str):
     return new, new != text
 
 
-def build_units(cues: List[Cue], context_merge: bool = True, max_gap: float = 1.0,
+def build_units(cues: List[Cue], context_merge: bool = True, max_gap: float = 0.3,
                 max_chars: int = 240, max_cues: int = 4) -> List[List[int]]:
     units, cur, chars = [], [], 0
     for i, c in enumerate(cues):

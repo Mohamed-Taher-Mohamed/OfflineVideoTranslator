@@ -61,6 +61,8 @@ class Settings:
     context_merge: bool = True
     beam_size: int = 3                   # 1 = fastest, 3 = balanced, 5 = most accurate
     theme: str = "light"
+    smart_split: bool = True             # cut cues at the pauses between words (one line per utterance / turn)
+    split_pause: float = 0.40            # seconds of pause that starts a new cue
     speech_sensitivity: str = "normal"   # "normal" | "high" (also catches quiet / background speech)
     mixed_languages: bool = False        # video contains several spoken languages
     mt_engine: str = "nmt"               # "nmt" = built-in (Argos/NLLB), "llm" = language model via an OpenAI-compatible server

@@ -84,3 +84,32 @@ def test_backend_streams_segments_to_callback_and_uses_configured_beam(tmp_path,
     got = []
     _, _, segs = FasterWhisperBackend(str(tmp_path), beam_size=1).transcribe(make_wav(tmp_path / "b.wav"), on_segment=got.append)
     assert seen["beam_size"] == 1 and [s.text for s in got] == ["t0", "t1", "t2"] and len(segs) == 3
+
+
+def test_backend_returns_word_timing_and_asks_for_short_silence_vad(tmp_path, monkeypatch):
+    import faster_whisper
+    seen = {}
+
+    class W:
+        def __init__(self, s, e, w, p):
+            self.start, self.end, self.word, self.probability = s, e, w, p
+
+    class FakeModel:
+        def __init__(self, *a, **k):
+            pass
+
+        def transcribe(self, audio, **k):
+            seen.update(k)
+            info = type("I", (), {"language": "en", "language_probability": 0.9})()
+            seg = type("S", (), {"start": 0.0, "end": 2.0, "text": " how old", "avg_logprob": -0.1, "no_speech_prob": 0.0,
+                                 "words": [W(0.0, 0.5, " how", 0.9), W(1.5, 2.0, " old", 0.8)]})()
+            return iter([seg]), info
+    monkeypatch.setattr(faster_whisper, "WhisperModel", FakeModel)
+    from ovt.asr.faster_whisper_backend import FasterWhisperBackend
+    _, _, segs = FasterWhisperBackend(str(tmp_path), word_timestamps=True, vad_min_silence_ms=500).transcribe(make_wav(tmp_path / "w.wav"))
+    assert seen["word_timestamps"] is True and seen["vad_parameters"]["min_silence_duration_ms"] == 500
+    assert seen["hallucination_silence_threshold"] == 2.0
+    assert segs[0].words == [{"s": 0.0, "e": 0.5, "w": " how", "p": 0.9}, {"s": 1.5, "e": 2.0, "w": " old", "p": 0.8}]
+    seen.clear()
+    FasterWhisperBackend(str(tmp_path)).transcribe(tmp_path / "w.wav")
+    assert seen["word_timestamps"] is False and "hallucination_silence_threshold" not in seen

@@ -47,7 +47,7 @@ def test_backend_options_reach_faster_whisper(tmp_path, monkeypatch):
     FasterWhisperBackend(str(tmp_path), multilingual=True).transcribe(wav)
     FasterWhisperBackend(str(tmp_path), multilingual=True).transcribe(wav, language="en")
     normal, high, mixed, mixed_forced = seen
-    assert "vad_parameters" not in normal and "multilingual" not in normal and normal["vad_filter"] is True
+    assert normal["vad_parameters"] == {"min_silence_duration_ms": 2000} and "multilingual" not in normal and normal["vad_filter"] is True
     assert high["vad_parameters"]["threshold"] < 0.5 and high["no_speech_threshold"] > 0.6 and high["log_prob_threshold"] < -1.0
     assert mixed["multilingual"] is True and mixed["language"] is None
     assert "multilingual" not in mixed_forced and mixed_forced["language"] == "en"     # an explicit language wins

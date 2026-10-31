@@ -2,6 +2,7 @@ OfflineVideoTranslator.py
 README.md
 ci/STUB_build-windows.yml
 ci/check_files.py
+ci/required_files.txt
 docs/BETTER_TRANSLATION_AR.txt
 docs/LANGUAGES.md
 docs/MODEL_LINKS.txt
@@ -38,6 +39,7 @@ ovt/models.py
 ovt/netguard.py
 ovt/pipeline.py
 ovt/preview_logic.py
+ovt/segmenter.py
 ovt/selftest.py
 ovt/subtitles.py
 ovt/translate/__init__.py
@@ -55,6 +57,7 @@ requirements.txt
 tests/conftest.py
 tests/test_asr_audio_and_hub.py
 tests/test_chunk_plan.py
+tests/test_ci_check.py
 tests/test_cli.py
 tests/test_ct2_backend.py
 tests/test_diagnostics.py
@@ -71,6 +74,7 @@ tests/test_pipeline.py
 tests/test_preview_logic.py
 tests/test_progress_in_chunk.py
 tests/test_range.py
+tests/test_segmenter.py
 tests/test_selftest_and_mux.py
 tests/test_subtitles.py
 tests/test_translate_service.py

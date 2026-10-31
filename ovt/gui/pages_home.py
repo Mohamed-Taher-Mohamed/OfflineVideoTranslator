@@ -363,7 +363,7 @@ class HomePage(QWidget):
             keep_temp=s.keep_temp, max_chars=s.max_chars_per_line, max_lines=s.max_lines,
             min_cue_seconds=s.min_cue_seconds, bom=s.utf8_bom, rtl_marks=s.rtl_marks, translator_tag=engine_tag(s),
             speech_sensitivity=s.speech_sensitivity, mixed_languages=s.mixed_languages,
-            range_start=it.range_start, range_end=it.range_end)
+            range_start=it.range_start, range_end=it.range_end, smart_split=s.smart_split, split_pause=s.split_pause)
 
     def preflight(self, it):
         s = self.ctx.settings

@@ -26,6 +26,7 @@ from .glossary import Glossary
 from .media import FFmpeg, MediaInfo, iso3_to_1
 from . import subtitles as sub
 from .preview_logic import clock, range_tag, tail_lines
+from .segmenter import SplitOptions, resegment
 from .translate.service import translate_cues
 
 
@@ -57,6 +58,8 @@ class JobOptions:
     translator_tag: str = ""           # which translation engine/model (part of the cache fingerprint)
     speech_sensitivity: str = "normal"
     mixed_languages: bool = False
+    smart_split: bool = True
+    split_pause: float = 0.40
     range_start: float = 0.0           # process only [range_start, range_end] seconds (0 / 0 = whole file); times stay absolute
     range_end: float = 0.0
     snap_to_silence: bool = True       # move chunk borders to pauses so sentences are not cut (kept LAST: positional-arg safe)
@@ -176,7 +179,7 @@ class Pipeline:
     def _asr_fp(self, o: JobOptions) -> str:
         return _fp("asr", self._model_fp("asr", o.asr_model_id), o.audio_track, o.chunk_seconds, o.source_lang,
                    o.snap_to_silence, "plan-v2", o.speech_sensitivity, o.mixed_languages,
-                   round(o.range_start, 2), round(o.range_end, 2))
+                   round(o.range_start, 2), round(o.range_end, 2), "words" if o.smart_split else "plain", "vad-v2")
 
     def _stage_asr(self, o, info: MediaInfo, jdir: Path, res: JobResult):
         fp = self._asr_fp(o)
@@ -229,8 +232,7 @@ class Pipeline:
                     if not o.keep_temp and wav.exists():
                         wav.unlink()
                 for s in segs:
-                    s.start += start
-                    s.end += start
+                    s.shift(start)                       # also moves the word timings
                 segs = dedupe_repeats(segs)
                 if segs and not dominant:
                     dominant = clang
@@ -243,6 +245,8 @@ class Pipeline:
             if backend is not None:
                 backend.close()
         segments.sort(key=lambda s: s.start)
+        if o.smart_split:                              # cut at pauses; saved chunks keep the raw segments + words
+            segments = resegment(segments, SplitOptions(pause=o.split_pause))
         return segments, (o.source_lang or dominant or "")
 
     @staticmethod

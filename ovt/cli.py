@@ -27,7 +27,9 @@ def build_pipeline(paths, settings, opts: JobOptions, progress=None, cancel=None
         from .asr.faster_whisper_backend import FasterWhisperBackend
         m = mm.require("asr", opts.asr_model_id)
         return FasterWhisperBackend(m["path"], settings.device, settings.compute_type, beam_size=settings.beam_size,
-                                     sensitivity=settings.speech_sensitivity, multilingual=settings.mixed_languages)
+                                     sensitivity=settings.speech_sensitivity, multilingual=settings.mixed_languages,
+                                     word_timestamps=settings.smart_split,
+                                     vad_min_silence_ms=500 if settings.smart_split else 2000)
 
     def mt_factory():
         if settings.mt_engine == "llm":
@@ -160,7 +162,8 @@ def main(argv=None) -> int:
                 max_lines=settings.max_lines, min_cue_seconds=settings.min_cue_seconds, bom=settings.utf8_bom,
                 rtl_marks=settings.rtl_marks, translator_tag=engine_tag(settings),
                 speech_sensitivity=settings.speech_sensitivity, mixed_languages=settings.mixed_languages,
-                range_start=parse_clock(a.t_from), range_end=parse_clock(a.t_to))
+                range_start=parse_clock(a.t_from), range_end=parse_clock(a.t_to),
+                smart_split=settings.smart_split, split_pause=settings.split_pause)
             cancel = threading.Event()
             last = [""]
 

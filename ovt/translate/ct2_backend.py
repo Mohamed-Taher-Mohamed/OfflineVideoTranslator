@@ -158,13 +158,25 @@ class CT2Translator(Translator):
                 self.load_errors.append("%s: %s" % (Path(path).name, e))
 
     @staticmethod
+    def _package_stamp(file: Path) -> str:
+        """Cheap identity of a package: size + hash of its first MB. Replacing the file changes it."""
+        import hashlib
+        with open(file, "rb") as f:
+            head = f.read(1 << 20)
+        return "%d:%s" % (Path(file).stat().st_size, hashlib.sha256(head).hexdigest()[:16])
+
+    @staticmethod
     def _extract_argos(file: Path, root: Path) -> Path:
+        import shutil
         target = root / file.stem
         marker = target / ".extracted"
+        stamp = CT2Translator._package_stamp(file)
+        if marker.exists() and marker.read_text(encoding="utf-8").strip() != stamp:
+            shutil.rmtree(target, ignore_errors=True)         # the package was replaced: the unzipped copy is stale
         if not marker.exists():
             target.mkdir(parents=True, exist_ok=True)
             safe_extract(file, target)
-            marker.write_text("ok")
+            marker.write_text(stamp, encoding="utf-8")
         for meta in target.rglob("metadata.json"):
             return meta.parent
         raise ValueError("metadata.json not found after extraction")

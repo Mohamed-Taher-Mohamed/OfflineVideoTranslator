@@ -95,6 +95,8 @@ S = {
     "set_chunk": ("طول المقطع (ثانية)", "Chunk length (s)"), "set_device": ("الجهاز", "Device"),
     "set_chars": ("أقصى عدد أحرف في السطر", "Max characters per line"), "set_lines": ("أقصى عدد أسطر", "Max lines"),
     "set_min_dur": ("أقل مدة للسطر (ثانية)", "Minimum cue duration (s)"),
+    "set_split": ("فصل الجمل عند الوقفات (كل جملة / متحدث في سطر مستقل بتوقيته)", "Split at pauses (each utterance / speaker turn on its own timed line)"),
+    "set_pause": ("أقل وقفة للفصل (ثانية)", "Shortest pause that splits (s)"),
     "set_bom": ("ترميز UTF-8 مع BOM", "UTF-8 with BOM"), "set_rtl": ("إضافة علامات اتجاه RTL", "Add RTL direction marks"),
     "set_keep_tmp": ("الاحتفاظ بالملفات الصوتية المؤقتة", "Keep temporary audio files"),
     "set_context": ("ترجمة الجمل في سياقها (دمج الأسطر)", "Translate sentences in context (merge cues)"),

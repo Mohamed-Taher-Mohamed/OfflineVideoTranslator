@@ -103,3 +103,33 @@ def test_sentencepiece_model_loads_even_when_the_library_cannot_open_non_ascii_p
     assert t.supports("en", "ar").ok and len(t.translate(["hello world."], "en", "ar")) == 1
     nllb = CT2Translator([("nllb", nllb_dir)], folder / "ex2")
     assert not nllb.load_errors, nllb.load_errors
+
+
+def test_extracted_cache_follows_the_package_when_it_is_replaced(tmp_path):
+    """The unzipped copy in mt-extracted/ is a cache. Replacing the package under the same name must NOT keep serving
+    the old unzipped model."""
+    import shutil
+    ex = tmp_path / "ex"
+    a = make_argos_package(tmp_path / "pk" / "x.argosmodel", tmp_path / "w1", "en", "ar") if (tmp_path / "pk").mkdir() is None else None
+    t1 = CT2Translator([("argos", a)], ex)
+    assert t1.supports("en", "ar").ok and not t1.supports("fr", "ar").ok
+    b = make_argos_package(tmp_path / "pk2" / "x.argosmodel", tmp_path / "w2", "fr", "ar") if (tmp_path / "pk2").mkdir() is None else None
+    shutil.copy(b, a)                                           # same file name, different content
+    t2 = CT2Translator([("argos", a)], ex)
+    assert t2.supports("fr", "ar").ok and not t2.supports("en", "ar").ok, "stale extraction was reused"
+
+
+def test_deleting_or_reimporting_a_translation_model_clears_its_extracted_cache(tmp_path):
+    from ovt.config import Paths
+    from ovt.models import ModelManager
+    from test_models import make_argos
+    paths = Paths(tmp_path / "h").ensure()
+    mm = ModelManager(paths)
+    mm.import_model("mt", make_argos(tmp_path / "a.argosmodel"), "argos-en-ar")
+    cache = paths.models / "mt-extracted" / "argos-en-ar"
+    cache.mkdir(parents=True); (cache / ".extracted").write_text("old")
+    mm.import_model("mt", make_argos(tmp_path / "a.argosmodel", "fr", "ar"), "argos-en-ar")     # re-import under the same id
+    assert not cache.exists()
+    cache.mkdir(parents=True)
+    mm.delete("mt", "argos-en-ar")
+    assert not cache.exists() and not (paths.models / "mt" / "argos-en-ar").exists()
