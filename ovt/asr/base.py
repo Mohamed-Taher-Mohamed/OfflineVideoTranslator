@@ -12,6 +12,7 @@ class Segment:
     confidence: Optional[float] = None   # 0..1, from avg logprob when available
     no_speech_prob: Optional[float] = None
     words: Optional[List[dict]] = None   # [{"s": start, "e": end, "w": text, "p": probability}] when word timestamps are on
+    speaker: Optional[int] = None        # 1-based speaker number when speaker detection ran
 
     def to_dict(self):
         return asdict(self)

@@ -3,7 +3,7 @@ description: Downloads ffmpeg, runs the tests, builds the EXE with PyInstaller, 
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v6
       with:
         python-version: "3.12"
         cache: pip
@@ -69,7 +69,7 @@ runs:
       shell: pwsh
       run: Compress-Archive -Path dist\OfflineVideoTranslator -DestinationPath OfflineVideoTranslator-Portable.zip
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v6
       with:
         name: OfflineVideoTranslator-Portable
         path: OfflineVideoTranslator-Portable.zip

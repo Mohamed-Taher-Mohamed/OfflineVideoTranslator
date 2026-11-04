@@ -107,3 +107,45 @@ def download_argos(paths, models, src: str, tgt: str = "ar", index=None, progres
         out.append(models.import_model("mt", tmp, mid, license="see package metadata (Argos Open Tech)", source=p["url"]))
         tmp.unlink(missing_ok=True)
     return out
+
+
+# ---- speaker (diarization) models: pyannote segmentation + a speaker-embedding model, from the sherpa-onnx releases ----
+SPK_BASE_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download"
+SPK_SEGMENTATION = "speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"
+SPK_EMBEDDINGS = {
+    "titanet-small": {"file": "speaker-recongition-models/nemo_en_titanet_small.onnx", "approx_mb": 38,
+                      "desc": "NeMo TitaNet small (English voices) - the default, stable on a 2-speaker test clip"},
+    "campplus-en": {"file": "speaker-recongition-models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx", "approx_mb": 28,
+                    "desc": "3D-Speaker CAM++ (English voices) - smaller, less stable in my test"},
+}      # tag 'speaker-recongition-models' is spelled that way in the upstream release
+
+
+def _extract_segmentation(archive: Path, dest: Path) -> None:
+    """Write model.onnx from the tar.bz2 to `dest` WITHOUT extracting anything else (no path traversal possible)."""
+    import tarfile
+    with tarfile.open(archive, "r:bz2") as tf:
+        member = next((m for m in tf.getmembers() if m.isfile() and Path(m.name).name == "model.onnx"), None)
+        if member is None:
+            raise ModelIntegrityError("The segmentation archive does not contain model.onnx")
+        data = tf.extractfile(member).read()
+    dest.write_bytes(data)
+
+
+def download_speaker_package(paths, models, key: str = "titanet-small", progress=None, cancel=None) -> dict:
+    if key not in SPK_EMBEDDINGS:
+        raise OVTError("unknown speaker model: %s (known: %s)" % (key, ", ".join(SPK_EMBEDDINGS)))
+    import shutil
+    tmp = paths.temp / ("spk-" + key)
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
+    try:
+        emb = SPK_EMBEDDINGS[key]
+        with netguard.temporarily_online("download speaker models (" + key + ")"):
+            arc = download_file("%s/%s" % (SPK_BASE_URL, SPK_SEGMENTATION), tmp / "seg.tar.bz2", progress=progress, cancel=cancel)
+            download_file("%s/%s" % (SPK_BASE_URL, emb["file"]), tmp / "embedding.onnx", progress=progress, cancel=cancel)
+        _extract_segmentation(arc, tmp / "segmentation.onnx")
+        (tmp / "seg.tar.bz2").unlink()
+        return models.import_model("spk", tmp, "spk-" + key, license="see sherpa-onnx / model cards",
+                                   source="%s/%s" % (SPK_BASE_URL, emb["file"]))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)

@@ -16,6 +16,9 @@ ovt/asr/faster_whisper_backend.py
 ovt/cli.py
 ovt/config.py
 ovt/diagnostics.py
+ovt/diarize/__init__.py
+ovt/diarize/base.py
+ovt/diarize/sherpa_backend.py
 ovt/downloader.py
 ovt/errors.py
 ovt/export.py
@@ -37,10 +40,12 @@ ovt/gui/workers.py
 ovt/media.py
 ovt/models.py
 ovt/netguard.py
+ovt/pathutil.py
 ovt/pipeline.py
 ovt/preview_logic.py
 ovt/segmenter.py
 ovt/selftest.py
+ovt/speakers.py
 ovt/subtitles.py
 ovt/translate/__init__.py
 ovt/translate/argos_backend.py
@@ -48,6 +53,7 @@ ovt/translate/base.py
 ovt/translate/ct2_backend.py
 ovt/translate/llm_backend.py
 ovt/translate/service.py
+ovt/vad.py
 packaging/README_PORTABLE_AR.txt
 packaging/build_windows.ps1
 packaging/cli_entry.py
@@ -76,6 +82,7 @@ tests/test_progress_in_chunk.py
 tests/test_range.py
 tests/test_segmenter.py
 tests/test_selftest_and_mux.py
+tests/test_speakers.py
 tests/test_subtitles.py
 tests/test_translate_service.py
 tests/tinymodel.py

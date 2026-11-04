@@ -69,6 +69,11 @@ def run_diagnostics(paths) -> List[Check]:
         return "sentencepiece %s" % sentencepiece.__version__
     out.append(_try("sentencepiece (tokenizer)", spm))
 
+    def sherpa():
+        import sherpa_onnx
+        return "sherpa-onnx %s (speaker detection)" % getattr(sherpa_onnx, "__version__", "?")
+    out.append(_try("sherpa-onnx (speakers)", sherpa))
+
     def fw():
         import faster_whisper
         return "faster-whisper %s" % faster_whisper.__version__

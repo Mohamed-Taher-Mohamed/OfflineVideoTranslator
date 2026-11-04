@@ -4,10 +4,10 @@ import sys
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs
 
 datas, binaries, hidden = [], [], []
-for pkg in ("faster_whisper", "ctranslate2", "onnxruntime", "av", "tokenizers", "sentencepiece"):
+for pkg in ("faster_whisper", "ctranslate2", "onnxruntime", "av", "tokenizers", "sentencepiece", "sherpa_onnx"):
     d, b, h = collect_all(pkg)
     datas += d; binaries += b; hidden += h
-hidden += ["ovt.gui.main_window", "ovt.gui.pages_preview", "ovt.cli", "ovt.diagnostics",
+hidden += ["ovt.gui.main_window", "ovt.gui.pages_preview", "ovt.cli", "ovt.diagnostics", "ovt.diarize.sherpa_backend",
            "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets"]
 
 excludes = ["torch", "torchaudio", "torchvision", "tensorflow", "stanza", "spacy", "argostranslate",

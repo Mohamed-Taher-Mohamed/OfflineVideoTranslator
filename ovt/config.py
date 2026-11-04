@@ -61,6 +61,11 @@ class Settings:
     context_merge: bool = True
     beam_size: int = 3                   # 1 = fastest, 3 = balanced, 5 = most accurate
     theme: str = "light"
+    detect_speakers: bool = False        # recognise turn by turn and put each speaker's turn on its own line
+    num_speakers: int = 0                # 0 = automatic
+    speaker_threshold: float = 0.8
+    speaker_labels: str = "none"         # "none" | "label"
+    spk_model_id: str = ""
     smart_split: bool = True             # cut cues at the pauses between words (one line per utterance / turn)
     split_pause: float = 0.40            # seconds of pause that starts a new cue
     speech_sensitivity: str = "normal"   # "normal" | "high" (also catches quiet / background speech)

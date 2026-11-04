@@ -56,7 +56,7 @@ class ModelsPage(QWidget):
         ms = self.ctx.models.list()
         self.table.setRowCount(len(ms))
         for r, m in enumerate(ms):
-            default = "✔" if (m["kind"] == "asr" and m["id"] == s.asr_model_id) or (m["kind"] == "mt" and m["id"] == s.mt_model_id) else ""
+            default = "✔" if (m["kind"] == "asr" and m["id"] == s.asr_model_id) or (m["kind"] == "mt" and m["id"] == s.mt_model_id) or (m["kind"] == "spk" and m["id"] == s.spk_model_id) else ""
             vals = [m["kind"], m["id"], m["version"] or "-", "%.1f MB" % (m["size_bytes"] / 2**20), ", ".join(m["languages"]),
                     m["license"], m["source"], default]
             for c, v in enumerate(vals):
@@ -141,6 +141,8 @@ class ModelsPage(QWidget):
             s = self.ctx.settings
             if sel[0] == "asr":
                 s.asr_model_id = sel[1]
+            elif sel[0] == "spk":
+                s.spk_model_id = sel[1]
             else:
                 s.mt_model_id = sel[1]
             s.save(self.ctx.paths)
@@ -156,6 +158,9 @@ class ModelsPage(QWidget):
         sub = menu.addMenu(t("m_dl_asr"))
         for key, info in ASR_CATALOG.items():
             sub.addAction("%s  (~%d MB)" % (key, info["approx_mb"]), lambda k=key: self.download_asr(k))
+        sub3 = menu.addMenu(t("m_dl_spk"))
+        for key, info in downloader.SPK_EMBEDDINGS.items():
+            sub3.addAction("%s  (~%d MB)" % (key, info["approx_mb"] + 7), lambda k=key: self.download_spk(k))
         sub2 = menu.addMenu(t("m_dl_mt"))
         idx = 0 if self.ctx.i18n.lang == "ar" else 1
         for code, names in LANG_NAMES.items():
@@ -172,6 +177,19 @@ class ModelsPage(QWidget):
                 s.asr_model_id = m["id"]; s.save(self.ctx.paths)
             self.status.setText(self.ctx.t("m_dl_done") + ": " + m["id"]); self.refresh()
         self.run_bg(lambda: self.ctx.models.download_asr(key, allow_network=True), ok)
+
+    def download_spk(self, key):
+        if self.job or not self.confirm_online("%s (~%d MB)" % (key, downloader.SPK_EMBEDDINGS[key]["approx_mb"] + 7)):
+            return
+
+        def ok(m):
+            s = self.ctx.settings
+            if not s.spk_model_id:
+                s.spk_model_id = m["id"]
+            s.detect_speakers = True                              # the user asked for it: turn the feature on
+            s.save(self.ctx.paths)
+            self.status.setText(self.ctx.t("m_dl_done") + ": " + m["id"]); self.refresh()
+        self.run_bg(lambda: downloader.download_speaker_package(self.ctx.paths, self.ctx.models, key), ok)
 
     def download_mt(self, lang):
         if self.job:

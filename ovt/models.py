@@ -21,6 +21,7 @@ from . import netguard
 
 MANIFEST = "model.ovt.json"
 ASR_REQUIRED = ("model.bin", "config.json", "tokenizer.json")
+SPK_REQUIRED = ("segmentation.onnx", "embedding.onnx")
 
 # Static catalog (no network needed to read it). Sizes are APPROXIMATE, from memory of the
 # published repos, and must be re-verified against the real download before being shown as facts.
@@ -59,7 +60,7 @@ class ModelManager:
 
     def list(self, kind: Optional[str] = None) -> List[Dict]:
         out = []
-        for k in ([kind] if kind else ["asr", "mt"]):
+        for k in ([kind] if kind else ["asr", "mt", "spk"]):
             base = self.paths.models / k
             if not base.is_dir():
                 continue
@@ -125,6 +126,14 @@ class ModelManager:
                     version = version or str(meta.get("package_version", ""))
                     shutil.copy2(src, staging / (_safe_id(model_id) + ".argosmodel"))
                     mt_type = "argos"
+            elif kind == "spk":                       # speaker package = segmentation.onnx + embedding.onnx
+                missing = [f for f in SPK_REQUIRED if not (src / f).is_file()] if src.is_dir() else list(SPK_REQUIRED)
+                if missing:
+                    raise ModelIntegrityError("A speaker package folder needs: %s (missing: %s)"
+                                              % (", ".join(SPK_REQUIRED), ", ".join(missing)))
+                for f in SPK_REQUIRED:
+                    shutil.copy2(src / f, staging / f)
+                languages = languages or ["any (speaker voices)"]
             else:
                 raise OVTError("unknown model kind: %s" % kind)
 

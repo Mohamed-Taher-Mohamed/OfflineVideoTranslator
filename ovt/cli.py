@@ -28,7 +28,7 @@ def build_pipeline(paths, settings, opts: JobOptions, progress=None, cancel=None
         m = mm.require("asr", opts.asr_model_id)
         return FasterWhisperBackend(m["path"], settings.device, settings.compute_type, beam_size=settings.beam_size,
                                      sensitivity=settings.speech_sensitivity, multilingual=settings.mixed_languages,
-                                     word_timestamps=settings.smart_split,
+                                     word_timestamps=settings.smart_split or settings.detect_speakers,
                                      vad_min_silence_ms=500 if settings.smart_split else 2000)
 
     def mt_factory():
@@ -50,7 +50,13 @@ def build_pipeline(paths, settings, opts: JobOptions, progress=None, cancel=None
             raise ModelMissingError("No translation model is installed. Import one (Models page / `models import --kind mt`).")
         return CT2Translator(pk, paths.models / "mt-extracted", settings.device, settings.compute_type)
 
-    return Pipeline(paths, ff, asr_factory, mt_factory, mm, progress, cancel)
+    def diarizer_factory():
+        from .diarize.sherpa_backend import SherpaDiarizer
+        m = mm.require("spk", opts.spk_model_id)
+        d = Path(m["path"])
+        return SherpaDiarizer(d / "segmentation.onnx", d / "embedding.onnx", opts.num_speakers, opts.speaker_threshold)
+
+    return Pipeline(paths, ff, asr_factory, mt_factory, mm, progress, cancel, diarizer_factory=diarizer_factory)
 
 
 def _log_error(paths, exc) -> Path:
@@ -98,12 +104,15 @@ def main(argv=None) -> int:
     m = sp.add_parser("models"); ms = m.add_subparsers(dest="mcmd", required=True)
     ms.add_parser("list")
     i = ms.add_parser("import")
-    i.add_argument("--kind", choices=["asr", "mt"], required=True); i.add_argument("--id", required=True)
+    i.add_argument("--kind", choices=["asr", "mt", "spk"], required=True); i.add_argument("--id", required=True)
     i.add_argument("--path", required=True); i.add_argument("--license", default=""); i.add_argument("--source", default="")
     v = ms.add_parser("verify"); v.add_argument("--kind", required=True); v.add_argument("--id", required=True)
     d = ms.add_parser("delete"); d.add_argument("--kind", required=True); d.add_argument("--id", required=True)
     dl = ms.add_parser("download"); dl.add_argument("key", choices=list(ASR_CATALOG))
     s = sp.add_parser("selftest-mt"); s.add_argument("--src-lang", required=True); s.add_argument("--tgt-lang", default="ar")
+    s = sp.add_parser("diarize", help="show who speaks when in a 16 kHz WAV / any media file")
+    s.add_argument("file"); s.add_argument("--spk-model", required=True); s.add_argument("--speakers", type=int, default=0)
+    s.add_argument("--threshold", type=float, default=0.8)
     sp.add_parser("diag")
     sp.add_parser("reset-settings")
     sp.add_parser("clean-jobs")
@@ -139,6 +148,16 @@ def main(argv=None) -> int:
             opts0.mt_model_id = ""
             tr = build_pipeline(paths, settings, opts0).translator_factory()
             print(json.dumps(run_mt_selftest(tr, a.src_lang, a.tgt_lang), ensure_ascii=False, indent=2))
+        elif a.cmd == "diarize":
+            import tempfile
+            from .diarize.sherpa_backend import SherpaDiarizer
+            m = ModelManager(paths).require("spk", a.spk_model)
+            d = Path(m["path"])
+            ff = FFmpeg(paths.engines)
+            wav = Path(tempfile.mkdtemp(prefix="ovt_")) / "a.wav"
+            ff.extract_wav(a.file, 0, 0, max(ff.probe(a.file).duration, 1.0), wav)
+            turns = SherpaDiarizer(d / "segmentation.onnx", d / "embedding.onnx", a.speakers, a.threshold).diarize(wav)
+            print(json.dumps({"speakers": len({t.speaker for t in turns}), "turns": [t.to_dict() for t in turns]}, indent=1))
         elif a.cmd == "diag":
             from .diagnostics import format_report, run_diagnostics
             rep = format_report(run_diagnostics(paths))
@@ -163,7 +182,10 @@ def main(argv=None) -> int:
                 rtl_marks=settings.rtl_marks, translator_tag=engine_tag(settings),
                 speech_sensitivity=settings.speech_sensitivity, mixed_languages=settings.mixed_languages,
                 range_start=parse_clock(a.t_from), range_end=parse_clock(a.t_to),
-                smart_split=settings.smart_split, split_pause=settings.split_pause)
+                smart_split=settings.smart_split, split_pause=settings.split_pause,
+                detect_speakers=settings.detect_speakers, num_speakers=settings.num_speakers,
+                speaker_threshold=settings.speaker_threshold, speaker_labels=settings.speaker_labels,
+                spk_model_id=settings.spk_model_id)
             cancel = threading.Event()
             last = [""]
 

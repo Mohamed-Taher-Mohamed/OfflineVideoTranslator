@@ -33,9 +33,13 @@ def build_units(cues: List[Cue], context_merge: bool = True, max_gap: float = 0.
     for i, c in enumerate(cues):
         if cur:
             prev = cues[cur[-1]]
+            gap = c.start - prev.end
+            if prev.speaker and c.speaker:                     # speakers known (speaker detection ran)
+                gap_ok = prev.speaker == c.speaker and gap <= 3.0
+            else:
+                gap_ok = gap <= max_gap
             joinable = (context_merge and not _END.search(prev.source_text.strip())
-                        and c.start - prev.end <= max_gap and chars + len(c.source_text) <= max_chars
-                        and len(cur) < max_cues)
+                        and gap_ok and chars + len(c.source_text) <= max_chars and len(cur) < max_cues)
             if not joinable:
                 units.append(cur)
                 cur, chars = [], 0

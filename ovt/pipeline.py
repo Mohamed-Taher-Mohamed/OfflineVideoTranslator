@@ -60,6 +60,11 @@ class JobOptions:
     mixed_languages: bool = False
     smart_split: bool = True
     split_pause: float = 0.40
+    detect_speakers: bool = False      # who speaks when: one cue per speaker turn, recognised turn by turn
+    num_speakers: int = 0              # 0 = decide automatically
+    speaker_threshold: float = 0.8
+    speaker_labels: str = "none"       # "none" | "label" (prefix 'المتحدث N:' when the speaker changes)
+    spk_model_id: str = ""
     range_start: float = 0.0           # process only [range_start, range_end] seconds (0 / 0 = whole file); times stay absolute
     range_end: float = 0.0
     snap_to_silence: bool = True       # move chunk borders to pauses so sentences are not cut (kept LAST: positional-arg safe)
@@ -107,7 +112,8 @@ def _fp(*parts) -> str:
 class Pipeline:
     def __init__(self, paths, ffmpeg: FFmpeg, asr_factory: Callable, translator_factory: Callable,
                  model_manager=None, progress: Optional[Callable[[Progress], None]] = None,
-                 cancel: Optional[threading.Event] = None):
+                 cancel: Optional[threading.Event] = None, diarizer_factory: Optional[Callable] = None):
+        self.diarizer_factory = diarizer_factory
         self.paths, self.ff = paths, ffmpeg
         self.asr_factory, self.translator_factory = asr_factory, translator_factory
         self.models = model_manager
@@ -129,6 +135,8 @@ class Pipeline:
         if not self.models or not model_id:
             return model_id or ""
         m = self.models.get(kind, model_id)
+        if kind == "spk":
+            return "%s:%s" % (m["id"], "".join(v["sha256"][:8] for _, v in sorted(m["files"].items())))
         key = m["files"].get("model.bin") or next(iter(m["files"].values()))
         return "%s:%s:%s" % (m["id"], m["version"], key["sha256"][:12])
 
@@ -151,8 +159,12 @@ class Pipeline:
         glossary = Glossary.load(o.glossary_path)
 
         if o.source_mode == "asr":
-            segs, lang = self._stage_asr(o, info, jdir, res)
-            cues = [sub.Cue(s.start, s.end, "", source_text=s.text, confidence=s.confidence) for s in segs]
+            if o.detect_speakers:
+                segs, lang = self._stage_speaker_asr(o, info, jdir, res)
+            else:
+                segs, lang = self._stage_asr(o, info, jdir, res)
+            cues = [sub.Cue(s.start, s.end, "", source_text=s.text, confidence=s.confidence,
+                            speaker=str(s.speaker) if s.speaker else "") for s in segs]
             asr_fp = self._asr_fp(o)
         else:
             cues, lang = self._stage_existing_subs(o, info, jdir)
@@ -179,7 +191,8 @@ class Pipeline:
     def _asr_fp(self, o: JobOptions) -> str:
         return _fp("asr", self._model_fp("asr", o.asr_model_id), o.audio_track, o.chunk_seconds, o.source_lang,
                    o.snap_to_silence, "plan-v2", o.speech_sensitivity, o.mixed_languages,
-                   round(o.range_start, 2), round(o.range_end, 2), "words" if o.smart_split else "plain", "vad-v2")
+                   round(o.range_start, 2), round(o.range_end, 2), "words" if (o.smart_split or o.detect_speakers) else "plain", "vad-v2",
+                   "packed" if o.detect_speakers else "stream")
 
     def _stage_asr(self, o, info: MediaInfo, jdir: Path, res: JobResult):
         fp = self._asr_fp(o)
@@ -275,6 +288,116 @@ class Pipeline:
         atomic_write_json(pf, {"fingerprint": fp, "plan": plan})
         return plan
 
+    # ---- speaker-aware recognition (turn by turn) ----
+    def _stage_speaker_asr(self, o, info: MediaInfo, jdir: Path, res: JobResult):
+        import numpy as np
+        from .asr.audio_io import read_wav_float32
+        from .speakers import (ClipText, SpeakerOptions, assign_words, batch_audio, cues_from_clips, make_clips, pack)
+        from .vad import speech_regions
+        from .diarize.base import Turn
+        import wave
+        if self.diarizer_factory is None:
+            raise OVTError("Speaker detection is not available in this build.")
+        t0, t1 = self._range(o, info)
+        total = (t1 if t1 > 0 else info.duration) - t0
+        if total > 3 * 3600:
+            raise OVTError("Speaker detection needs the whole audio in memory: process at most 3 hours at a time "
+                           "(use the 'from / to' fields).")
+        opt = SpeakerOptions()
+        ensure_free_space(self.paths.temp, int(total * 32000) + 100 * 2**20, "the temporary audio of the speaker analysis")
+        # 1) the whole range as 16 kHz mono (reused when resuming)
+        wav, meta = jdir / "range.wav", jdir / "range.json"
+        want = {"t0": round(t0, 3), "t1": round(t0 + total, 3), "track": o.audio_track}
+        if not (wav.exists() and read_json(meta) == want):
+            self._emit("speakers", 0.0, "Extracting audio", detail="")
+            self.ff.extract_wav(o.input_path, o.audio_track, t0, total, wav)
+            atomic_write_json(meta, want)
+        samples = read_wav_float32(wav)
+        self._check_cancel()
+        # 2) who speaks when (cached; the library cannot be interrupted once started)
+        spk_fp = _fp("spk", self._model_fp("spk", o.spk_model_id), o.num_speakers, round(o.speaker_threshold, 3), want)
+        sf = jdir / "speakers.json"
+        saved = read_json(sf)
+        if saved and saved.get("fingerprint") == spk_fp:
+            turns = [Turn(**t) for t in saved["turns"]]
+            vad = [tuple(v) for v in saved["vad"]]
+        else:
+            diar = self.diarizer_factory()
+
+            def dprog(done, n):
+                self._emit("speakers", 0.18 * done / max(n, 1), "Detecting speakers %d/%d" % (done, n))
+            self._emit("speakers", 0.0, "Detecting speakers")
+            turns = diar.diarize(wav, dprog)
+            vad = speech_regions(samples, 300)
+            atomic_write_json(sf, {"fingerprint": spk_fp, "turns": [t.to_dict() for t in turns], "vad": vad})
+        n_spk = len({t.speaker for t in turns})
+        self._emit("speakers", 0.19, "Speakers found: %d" % n_spk, detail="%d speakers, %d turns" % (n_spk, len(turns)))
+        self._check_cancel()
+        # 3) clips and windows
+        clips = make_clips(turns, vad, total, opt)
+        batches = pack(clips, opt)
+        res.chunks_total = len(batches)
+        layout = _fp([[round(c.a, 3), round(c.b, 3)] for c in clips])
+        fp = _fp(self._asr_fp(o), "packed-v1", layout)
+        dominant, backend = None, None
+        items: List[ClipText] = []
+        try:
+            for k, batch in enumerate(batches):
+                self._check_cancel()
+                cf = jdir / "chunks" / ("spk_%04d.json" % k)
+                saved = read_json(cf)
+                if saved and saved.get("fingerprint") == fp:
+                    res.chunks_resumed += 1
+                    got = saved["items"]
+                    if any(g["text"] for g in got) and not dominant:
+                        dominant = saved["language"]
+                else:
+                    if backend is None:
+                        backend = self.asr_factory()
+                        if hasattr(backend, "vad_filter"):
+                            backend.vad_filter = False          # the speech is already isolated; VAD would only drop short words
+                    force = None if o.mixed_languages else (o.source_lang or dominant or None)
+                    wp = jdir / ("tmp_spk_%04d.wav" % k)
+                    audio = batch_audio(samples, batch, opt)
+                    with wave.open(str(wp), "wb") as w:
+                        w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+                        w.writeframes((np.clip(audio, -1, 1) * 32767).astype("<i2").tobytes())
+                    t_rec = time.time()
+
+                    def on_seg(seg, k=k, batch=batch, t_rec=t_rec):
+                        self._check_cancel()
+                        frac = 0.2 + 0.5 * (k + min(max(seg.end, 0.0) / max(batch.length, 1e-6), 1.0)) / len(batches)
+                        self._emit("asr", frac, "Recognising speech %d/%d" % (k + 1, len(batches)), k + 1, len(batches),
+                                   detail=seg.text, speed=seg.end / max(time.time() - t_rec, 1e-6))
+                    try:
+                        clang, prob, segs = backend.transcribe(wp, force, on_segment=on_seg)
+                    finally:
+                        if not o.keep_temp and wp.exists():
+                            wp.unlink()
+                    words = [w for sg in segs for w in (sg.words or [{"s": sg.start, "e": sg.end, "w": sg.text, "p": sg.confidence}])]
+                    per_clip = assign_words(batch, words, opt)
+                    got = []
+                    for ws in per_clip:
+                        probs = [w.get("p") for w in ws if w.get("p") is not None]
+                        got.append({"text": " ".join("".join(w["w"] for w in ws).split()),
+                                    "conf": (sum(probs) / len(probs)) if probs else None})
+                    if any(g["text"] for g in got) and not dominant:
+                        dominant = clang
+                    atomic_write_json(cf, {"fingerprint": fp, "language": clang, "items": got})
+                for c, g in zip(batch.clips, got):
+                    items.append(ClipText(c, g["text"], g.get("conf")))
+                self._emit("asr", 0.2 + 0.5 * (k + 1) / len(batches), "Window %d/%d done" % (k + 1, len(batches)),
+                           k + 1, len(batches))
+        finally:
+            if backend is not None:
+                backend.close()
+            if not o.keep_temp:
+                wav.unlink(missing_ok=True)
+        out = []
+        for c in cues_from_clips(items, opt):
+            out.append(Segment(c["start"] + t0, c["end"] + t0, c["text"], c["confidence"], 0.0, None, c["speaker"]))
+        return out, (o.source_lang or dominant or "")
+
     # ---- existing subtitles ----
     def _stage_existing_subs(self, o, info: MediaInfo, jdir: Path):
         if o.source_mode == "embedded":
@@ -354,11 +477,23 @@ class Pipeline:
             raise OVTError("Refusing to overwrite the original file")
         return p if o.overwrite else unique_path(p)
 
+    @staticmethod
+    def _label_speakers(cues):
+        """Prefix 'المتحدث N:' when the speaker changes (or after a long silence). Only cues with a known speaker."""
+        last_spk, last_end = None, -1e9
+        for c in cues:
+            if c.speaker and (c.speaker != last_spk or c.start - last_end > 3.0):
+                c.text = "المتحدث %s: %s" % (c.speaker, c.text)
+            if c.speaker:
+                last_spk, last_end = c.speaker, c.end
+
     def _stage_write(self, o, src_path, out_dir, cues, res, info):
         self._emit("write", 0.96, "Writing files")
         sub.fix_timing(cues, o.min_cue_seconds)
         final = sub.reflow(cues, o.max_chars, o.max_lines)
         final = sub.fix_timing(final, 0.3)
+        if o.speaker_labels == "label":
+            self._label_speakers(final)
         srt = self._target(out_dir, src_path, ".%s.srt" % o.target_lang, o)
         sub.write_srt(final, srt, o.bom, o.rtl_marks)
         res.outputs["srt"] = str(srt)

@@ -15,6 +15,7 @@ class FasterWhisperBackend(ASRBackend):
         self.beam_size = max(1, int(beam_size))
         self.sensitivity, self.multilingual = sensitivity, multilingual
         self.word_timestamps, self.vad_min_silence_ms = word_timestamps, int(vad_min_silence_ms)
+        self.vad_filter = True                      # the speaker mode switches it off (clips are already speech)
         from faster_whisper import WhisperModel  # lazy: keeps import cost out of the CLI --help path
         if compute_type == "auto":
             compute_type = "int8" if device in ("auto", "cpu") else "float16"
@@ -30,7 +31,7 @@ class FasterWhisperBackend(ASRBackend):
 
     def transcribe(self, wav_path, language: Optional[str] = None, on_segment=None) -> Tuple[str, float, List[Segment]]:
         audio = read_wav_float32(wav_path)          # ndarray in -> faster-whisper skips its PyAV decoder
-        kw = dict(language=language or None, vad_filter=True, condition_on_previous_text=False,   # fewer runaway loops
+        kw = dict(language=language or None, vad_filter=self.vad_filter, condition_on_previous_text=False,   # fewer runaway loops
                   beam_size=self.beam_size, word_timestamps=self.word_timestamps,
                   # faster-whisper's default (2000 ms) fuses a whole conversation into ONE speech block
                   vad_parameters=dict(min_silence_duration_ms=self.vad_min_silence_ms))

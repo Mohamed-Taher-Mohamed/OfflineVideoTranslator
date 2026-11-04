@@ -126,6 +126,23 @@ class SettingsPage(QWidget):
         self.update_llm_enabled()
         lay.addWidget(g)
 
+        g = QGroupBox(t("grp_speakers")); f = QFormLayout(g)
+        self.cb_spk = QCheckBox(t("set_spk")); self.cb_spk.setChecked(s.detect_speakers)
+        self.cb_nspk = QComboBox(); self.cb_nspk.addItem(t("nspk_auto"), 0)
+        for n in (2, 3, 4, 5, 6):
+            self.cb_nspk.addItem(str(n), n)
+        self.cb_nspk.setCurrentIndex(max(0, self.cb_nspk.findData(s.num_speakers)))
+        self.cb_spklabel = QComboBox(); self.cb_spklabel.addItem(t("spklabel_none"), "none"); self.cb_spklabel.addItem(t("spklabel_label"), "label")
+        self.cb_spklabel.setCurrentIndex(max(0, self.cb_spklabel.findData(s.speaker_labels)))
+        self.cb_spkmodel = QComboBox()
+        for m in self.ctx.models.list("spk"):
+            self.cb_spkmodel.addItem(m["id"], m["id"])
+        self.cb_spkmodel.setCurrentIndex(max(0, self.cb_spkmodel.findData(s.spk_model_id)))
+        spk_hint = QLabel(t("spk_hint")); spk_hint.setObjectName("hint"); spk_hint.setWordWrap(True)
+        f.addRow(self.cb_spk); f.addRow(t("set_nspk"), self.cb_nspk); f.addRow(t("set_spklabel"), self.cb_spklabel)
+        f.addRow(t("set_spkmodel"), self.cb_spkmodel); f.addRow(spk_hint)
+        lay.addWidget(g)
+
         g = QGroupBox(t("grp_models")); f = QFormLayout(g)
         self.cb_asr, self.cb_mt = QComboBox(), QComboBox()
         self.fill_models()
@@ -229,6 +246,10 @@ class SettingsPage(QWidget):
 
     def fill_models(self):
         s, t = self.ctx.settings, self.ctx.t
+        self.cb_spkmodel.clear()
+        for m in self.ctx.models.list("spk"):
+            self.cb_spkmodel.addItem(m["id"], m["id"])
+        self.cb_spkmodel.setCurrentIndex(max(0, self.cb_spkmodel.findData(s.spk_model_id)))
         self.cb_asr.clear(); self.cb_mt.clear()
         self.cb_asr.addItem("—", "")
         for m in self.ctx.models.list("asr"):
@@ -273,6 +294,8 @@ class SettingsPage(QWidget):
         s.chunk_seconds, s.device, s.keep_temp = self.sp_chunk.value(), self.cb_dev.currentData(), self.cb_keep.isChecked()
         s.beam_size = self.cb_beam.currentData()
         s.smart_split, s.split_pause = self.cb_split.isChecked(), self.sp_pause.value()
+        s.detect_speakers, s.num_speakers = self.cb_spk.isChecked(), self.cb_nspk.currentData()
+        s.speaker_labels, s.spk_model_id = self.cb_spklabel.currentData(), self.cb_spkmodel.currentData() or ""
         s.speech_sensitivity, s.mixed_languages = self.cb_sens.currentData(), self.cb_mixed.isChecked()
         s.mt_engine, s.llm_base_url = self.cb_engine.currentData(), self.ed_llm_url.text().strip()
         s.llm_model, s.llm_api_key, s.llm_cloud_ok = self.cb_llm_model.currentText().strip(), self.ed_llm_key.text().strip(), self.cb_cloud.isChecked()

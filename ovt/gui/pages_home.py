@@ -363,13 +363,17 @@ class HomePage(QWidget):
             keep_temp=s.keep_temp, max_chars=s.max_chars_per_line, max_lines=s.max_lines,
             min_cue_seconds=s.min_cue_seconds, bom=s.utf8_bom, rtl_marks=s.rtl_marks, translator_tag=engine_tag(s),
             speech_sensitivity=s.speech_sensitivity, mixed_languages=s.mixed_languages,
-            range_start=it.range_start, range_end=it.range_end, smart_split=s.smart_split, split_pause=s.split_pause)
+            range_start=it.range_start, range_end=it.range_end, smart_split=s.smart_split, split_pause=s.split_pause,
+            detect_speakers=s.detect_speakers, num_speakers=s.num_speakers, speaker_threshold=s.speaker_threshold,
+            speaker_labels=s.speaker_labels, spk_model_id=s.spk_model_id)
 
     def preflight(self, it):
         s = self.ctx.settings
         err = self.range_error(it, it.range_start, it.range_end)
         if err:
             return err
+        if it.source_mode == "asr" and s.detect_speakers and not any(m["id"] == s.spk_model_id for m in self.ctx.models.list("spk")):
+            return self.ctx.t("no_spk_model")
         if it.source_mode == "asr" and not s.asr_model_id:
             return self.ctx.t("no_asr_model")
         if it.source_mode == "file" and not it.subtitle_file:
