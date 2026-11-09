@@ -54,6 +54,7 @@ ovt/translate/ct2_backend.py
 ovt/translate/llm_backend.py
 ovt/translate/service.py
 ovt/vad.py
+ovt/winlibs.py
 packaging/README_PORTABLE_AR.txt
 packaging/build_windows.ps1
 packaging/cli_entry.py
@@ -85,4 +86,5 @@ tests/test_selftest_and_mux.py
 tests/test_speakers.py
 tests/test_subtitles.py
 tests/test_translate_service.py
+tests/test_winlibs.py
 tests/tinymodel.py

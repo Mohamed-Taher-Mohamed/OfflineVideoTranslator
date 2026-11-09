@@ -7,6 +7,15 @@ datas, binaries, hidden = [], [], []
 for pkg in ("faster_whisper", "ctranslate2", "onnxruntime", "av", "tokenizers", "sentencepiece", "sherpa_onnx"):
     d, b, h = collect_all(pkg)
     datas += d; binaries += b; hidden += h
+if sys.platform == "win32":                       # Visual C++ runtime: several native packages import it; ship it explicitly
+    import os
+    _seen = set()
+    for _d in (sys.base_prefix, os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32")):
+        for _n in ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll", "msvcp140_2.dll", "concrt140.dll"):
+            _p = os.path.join(_d, _n)
+            if _n not in _seen and os.path.exists(_p):
+                binaries.append((_p, "."))
+                _seen.add(_n)
 hidden += ["ovt.gui.main_window", "ovt.gui.pages_preview", "ovt.cli", "ovt.diagnostics", "ovt.diarize.sherpa_backend",
            "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets"]
 

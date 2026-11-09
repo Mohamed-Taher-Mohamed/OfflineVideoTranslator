@@ -65,7 +65,21 @@ def run_diagnostics(paths) -> List[Check]:
     out.append(_try("ctranslate2 (engine)", ct2))
 
     def spm():
-        import sentencepiece
+        try:
+            import sentencepiece
+        except ImportError as e:
+            if sys.platform == "win32":
+                import importlib.machinery
+                from .winlibs import explain_dll_failure
+                spec = importlib.machinery.PathFinder.find_spec("sentencepiece", [os.path.join(getattr(sys, "_MEIPASS", ""), "")]
+                                                                  + list(sys.path))
+                pyds = []
+                if spec and spec.submodule_search_locations:
+                    for loc in spec.submodule_search_locations:
+                        pyds += [os.path.join(loc, f) for f in os.listdir(loc) if f.startswith("_sentencepiece") and f.endswith(".pyd")]
+                if pyds:
+                    raise ImportError(explain_dll_failure(pyds[0], e)) from e
+            raise
         return "sentencepiece %s" % sentencepiece.__version__
     out.append(_try("sentencepiece (tokenizer)", spm))
 

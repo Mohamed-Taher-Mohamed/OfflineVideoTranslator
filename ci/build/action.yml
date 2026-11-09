@@ -47,6 +47,17 @@ runs:
         Copy-Item docs -Recurse "$root\docs"
         "" | Out-File "$root\models\ضع النماذج هنا.txt"
 
+    # The portable zip is built and uploaded BEFORE the smoke tests: if a smoke test fails the job still turns red,
+    # but you can still download the build and try it.
+    - name: Zip
+      shell: pwsh
+      run: Compress-Archive -Path dist\OfflineVideoTranslator -DestinationPath OfflineVideoTranslator-Portable.zip
+
+    - uses: actions/upload-artifact@v6
+      with:
+        name: OfflineVideoTranslator-Portable
+        path: OfflineVideoTranslator-Portable.zip
+
     - name: Smoke test - diagnostics (every check except "models installed" must pass)
       shell: pwsh
       run: |
@@ -64,12 +75,3 @@ runs:
         $p = Start-Process -FilePath "dist\OfflineVideoTranslator\OfflineVideoTranslator.exe" -PassThru -Wait
         "GUI exit code: $($p.ExitCode)"
         if ($p.ExitCode -ne 0) { exit 1 }
-
-    - name: Zip
-      shell: pwsh
-      run: Compress-Archive -Path dist\OfflineVideoTranslator -DestinationPath OfflineVideoTranslator-Portable.zip
-
-    - uses: actions/upload-artifact@v6
-      with:
-        name: OfflineVideoTranslator-Portable
-        path: OfflineVideoTranslator-Portable.zip
