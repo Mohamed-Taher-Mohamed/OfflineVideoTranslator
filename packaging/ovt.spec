@@ -4,6 +4,8 @@ import sys
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_dynamic_libs
 
 datas, binaries, hidden = [], [], []
+sys.path.insert(0, SPECPATH)                      # SPECPATH is provided by PyInstaller: the folder of this spec
+from spec_helpers import libs_binaries            # noqa: E402
 for pkg in ("faster_whisper", "ctranslate2", "onnxruntime", "av", "tokenizers", "sentencepiece", "sherpa_onnx"):
     d, b, h = collect_all(pkg)
     datas += d; binaries += b; hidden += h
@@ -16,6 +18,8 @@ if sys.platform == "win32":                       # Visual C++ runtime: several 
             if _n not in _seen and os.path.exists(_p):
                 binaries.append((_p, "."))
                 _seen.add(_n)
+# delvewheel wheels (Windows) keep their DLLs in '<package>.libs' beside the package: PyInstaller does not collect them
+binaries += libs_binaries(["sentencepiece", "ctranslate2", "onnxruntime", "av", "tokenizers", "sherpa_onnx", "faster_whisper", "numpy"])
 hidden += ["ovt.gui.main_window", "ovt.gui.pages_preview", "ovt.cli", "ovt.diagnostics", "ovt.diarize.sherpa_backend",
            "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets"]
 

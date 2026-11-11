@@ -59,6 +59,7 @@ packaging/README_PORTABLE_AR.txt
 packaging/build_windows.ps1
 packaging/cli_entry.py
 packaging/ovt.spec
+packaging/spec_helpers.py
 pytest.ini
 requirements.txt
 tests/conftest.py
@@ -84,6 +85,7 @@ tests/test_range.py
 tests/test_segmenter.py
 tests/test_selftest_and_mux.py
 tests/test_speakers.py
+tests/test_spec_helpers.py
 tests/test_subtitles.py
 tests/test_translate_service.py
 tests/test_winlibs.py

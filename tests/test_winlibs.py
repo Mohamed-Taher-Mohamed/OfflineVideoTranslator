@@ -29,15 +29,16 @@ def test_pe_import_reader_agrees_with_pefile():
     path = sample_pe()
     expected = sorted({e.dll.decode().lower() for e in pefile.PE(path).DIRECTORY_ENTRY_IMPORT})
     got = winlibs.pe_imports(path)
-    assert sorted(set(got)) == expected and "msvcp140.dll" in got and "vcruntime140.dll" in got
+    assert sorted(set(got)) == expected
+    assert any(n.startswith("msvcp140") for n in got) and "vcruntime140.dll" in got      # delvewheel builds rename msvcp140
 
 
 @needs_pe
 def test_failure_explanation_names_the_dll_that_cannot_be_loaded():
     exc = ImportError("DLL load failed while importing _sentencepiece: The specified module could not be found.")
-    msg = winlibs.explain_dll_failure(sample_pe(), exc, probe=lambda names: {n: n != "msvcp140.dll" for n in names})
-    assert "msvcp140.dll" in msg and "cannot be loaded" in msg and "DLL load failed" in msg
-    assert "bcrypt.dll" not in msg.split("cannot be loaded:")[1]
+    msg = winlibs.explain_dll_failure(sample_pe(), exc, probe=lambda names: {n: not n.startswith("msvcp140") for n in names})
+    assert "msvcp140" in msg and "cannot be loaded" in msg and "DLL load failed" in msg
+    assert "bcrypt.dll" not in msg.split("cannot be loaded:")[1] and "vcomp140" not in msg.split("cannot be loaded:")[1]
     ok = winlibs.explain_dll_failure(sample_pe(), exc, probe=lambda names: {n: True for n in names})
     assert "search-path or version conflict" in ok                               # nothing missing -> says what that implies
 
